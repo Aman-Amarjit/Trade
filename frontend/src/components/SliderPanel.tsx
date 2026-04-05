@@ -92,7 +92,10 @@ export function SliderPanel(): React.ReactElement {
             )}
 
             <div className="weight-sliders">
-                <h3>Engine Weights</h3>
+                <h3>Engine Weights (Local Preview)</h3>
+                <div className="replay-note" style={{ marginBottom: '8px' }}>
+                    Sliders adjust a local preview only. Backend weights are fixed at deployment.
+                </div>
                 {KEYS.map((key, i) => (
                     <div key={key} className="weight-row">
                         <label htmlFor={`weight-${key}`}>{LABELS[i]}</label>

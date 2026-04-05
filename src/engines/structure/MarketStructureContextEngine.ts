@@ -29,6 +29,11 @@ export const MarketStructureContextEngine: Engine<MarketStructureInput, MarketSt
     execute(input: MarketStructureInput): MarketStructureOutput | EngineError {
         const { candles, volatilityRegime } = input;
 
+        // NOTE: Swing detection uses H(t) > H(t-1) AND H(t) > H(t+1) per spec Section 6.1.1.
+        // This requires the next candle to confirm a swing high/low, introducing a 1-candle lag.
+        // This is intentional — unconfirmed swings would produce false structure signals.
+        // At 1m timeframe this is a 60-second lag; at 15m it is 15 minutes.
+
         // Validation: minimum 3 candles required
         if (!candles || candles.length < 3) {
             return {

@@ -56,20 +56,23 @@ export const GeometryClassifier: Engine<GeometryInput, GeometryOutput> = {
         const { priceSeries, atr, wickUp, wickDown, zWicks, askVolume, bidVolume } = input;
 
         // Edge case: insufficient data
-        if (priceSeries.length < 3 || atr <= 0) {
+        // Curvature requires 4 points (backward-looking second difference); rotation requires 3.
+        if (priceSeries.length < 4 || atr <= 0) {
             console.warn(
-                '[GeometryClassifier] Insufficient data: priceSeries.length < 3 or atr <= 0. Returning null output.',
+                '[GeometryClassifier] Insufficient data: priceSeries.length < 4 or atr <= 0. Returning null output.',
             );
             return { ...NULL_OUTPUT };
         }
 
         const n = priceSeries.length;
+        // Rotation indices (backward-looking, already causal): t = n-2, tPrev = n-3
         const tPrev = n - 3; // t-1
-        const t = n - 2; // t
-        const tNext = n - 1; // t+1
+        const t = n - 2;     // t
 
-        // Formula 1 — curvature
-        const curvature = Math.abs(priceSeries[tPrev] - 2 * priceSeries[t] + priceSeries[tNext]) / atr;
+        // Formula 1 — curvature (backward-looking one-sided second difference — causal, no future data)
+        // Uses [n-4, n-3, n-2] = [t-2, t-1, t] so no future candle is needed.
+        const tPrev2 = n - 4; // t-2
+        const curvature = Math.abs(priceSeries[tPrev2] - 2 * priceSeries[tPrev] + priceSeries[t]) / atr;
 
         // Formula 2 — imbalance
         const wickTerm = zWicks === 0 ? 0 : 0.5 * (wickUp - wickDown) / zWicks;
@@ -87,11 +90,19 @@ export const GeometryClassifier: Engine<GeometryInput, GeometryOutput> = {
         // Formula 5 — rotationPressure
         const rotationPressure = Math.abs(rotation);
 
+        // Clamp curvature and |imbalance| before sigmoid inputs to prevent saturation.
+        // During flash crashes curvature can exceed 50, making σ(50) ≈ 1.0 always.
+        // Clamping to [0, 3] keeps the sigmoid in its informative range.
+        const clampedCurvature = Math.min(curvature, 3.0);
+        const clampedAbsImbalance = Math.min(Math.abs(imbalance), 1.0);
+
         // Formula 6 — collapseProb
-        const collapseProb = sigmoid(curvature + Math.abs(imbalance) - structurePressure);
+        const collapseProb = sigmoid(clampedCurvature + clampedAbsImbalance - structurePressure);
 
         // Formula 7 — breakoutProb
-        const breakoutProb = sigmoid(rotationPressure + imbalance);
+        // Use |imbalance| for symmetric breakout probability (both up and down breaks)
+        // Directional bias is captured separately via rotation sign
+        const breakoutProb = sigmoid(rotationPressure + clampedAbsImbalance);
 
         // geometryRegime classification (Spec 5.1.8)
         let geometryRegime: GeometryRegime;

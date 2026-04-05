@@ -7,11 +7,11 @@
 
 A multi-layer analytical architecture for cryptocurrency markets. It is a pure analytical and visualization tool — it does not execute trades, generate buy/sell signals, or provide financial advice.
 
-The system runs 15 analytical engines every cycle, processes real market data from Kraken, and serves results to a React HUD frontend via a REST API.
+The system runs 15 analytical engines every cycle on real Kraken market data, and serves results to a React HUD frontend via a secured REST API.
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
 Kraken API (live market data — no API key required)
@@ -20,7 +20,7 @@ Kraken API (live market data — no API key required)
         ↓
    Pipeline Orchestrator  (15 engines in sequence, every 6s per symbol)
         ↓
-   REST API  (Express, port 3000)
+   REST API  (Express, port 3000, Bearer auth, rate limiting, HSTS)
         ↓
    React HUD Frontend  (Vite, port 5173)
 ```
@@ -46,53 +46,72 @@ Kraken API (live market data — no API key required)
 12. OrderflowEngine — delta, CVD, absorption, bid/ask pressure
 
 **Decision Engines** — synthesize everything
-13. PredictionEngine — strict line, confidence bands (50/80/95%), min/max zone
-14. ScoringEngine — unified probability score (0–100)
+13. PredictionEngine — alignment score (0–1), volatility envelopes, min/max zone
+14. ScoringEngine — unified probability score (0–100) with per-engine contributions
 15. RiskManager — EDD, hard reject conditions, safety constraints
 
-Plus: StateMachine — IDLE / WAITING_FOR_RETEST / IN_TRADE / COOLDOWN
+Plus: StateMachine — IDLE / WAITING_FOR_RETEST / HIGH_ALIGNMENT / COOLDOWN
+
+---
+
+## What the Alignment Score Means
+
+The primary output `strictLine` (displayed as "Alignment Score") is a **0–1 composite** of six normalized market signals:
+
+- **0.7–1.0** — conditions broadly aligned and favorable
+- **0.4–0.7** — mixed conditions, partial alignment
+- **0.0–0.4** — conditions misaligned or unfavorable
+
+It is NOT a price prediction, NOT a probability of price direction, and NOT a percent change. It is a weighted composite of geometry, liquidity, volatility, microstructure, orderflow, and macro signals.
+
+The volatility envelopes (Wide/Mid/Narrow) are ATR-based ranges around the current alignment score — they show expected score variability given current volatility, not statistical confidence intervals.
 
 ---
 
 ## External APIs Used
 
-No API keys are required. The system uses only public endpoints.
+No API keys required. All public endpoints.
 
 | Service | What it provides |
 |---|---|
-| Kraken REST API (`api.kraken.com`) | OHLCV candles, order book depth, recent trades |
+| Kraken REST API (`api.kraken.com`) | OHLCV candles (closed bars only), order book depth, recent trades |
 | Kraken Futures API (`futures.kraken.com`) | Open interest, funding rate |
 | Yahoo Finance (unofficial) | DXY, VIX, SPX, Gold spot prices |
 
-If Kraken is unavailable, the system automatically falls back to deterministic mock data so the pipeline keeps running without crashing.
+**Note on Yahoo Finance:** The unofficial Yahoo Finance endpoint is used for macro data (DXY, VIX, SPX, Gold). This is suitable for development and demo use. For commercial production, replace with a paid feed such as Alpha Vantage, Polygon.io, or Quandl. Hardcoded fallback values are used if Yahoo is unavailable.
+
+If Kraken is unavailable, the system automatically falls back to deterministic mock data so the pipeline keeps running.
 
 ---
 
 ## Environment Variables
 
-### Backend — create a `.env` file in the project root
+### Backend — root `.env`
 
-Copy `.env.example` to `.env` and fill in:
+Copy `.env.example` to `.env`:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `API_TOKEN` | YES | `dev-token-change-me` | Bearer token for all API requests. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `API_TOKEN` | YES | `dev-token-change-me` | Bearer token. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `PORT` | no | `3000` | Backend server port |
-| `SYMBOLS` | no | `BTC-USDT,ETH-USDT,SOL-USDT` | Comma-separated list of symbols to track |
+| `SYMBOLS` | no | `BTC-USDT,ETH-USDT,SOL-USDT` | Comma-separated symbols to track |
 | `TIMEFRAME` | no | `1m` | Candle timeframe: `1m`, `5m`, `15m`, `1h`, `4h`, `1d` |
 | `ALLOWED_ORIGINS` | YES (prod) | — | CORS whitelist. Your frontend URL e.g. `https://your-app.netlify.app` |
 | `LOG_DIR` | no | `./logs` | Directory for persistent journal log files |
-| `REPLAY_CSV_PATH` | no | — | Path to CSV file for replay mode. Format: `timestamp,open,high,low,close,volume` |
-| `TLS_CERT_PATH` | no | — | Path to TLS certificate (leave blank if your host handles TLS) |
-| `TLS_KEY_PATH` | no | — | Path to TLS private key |
+| `RATE_LIMIT_RPM` | no | `120` | Requests per minute per IP (120 supports 3-symbol multi-asset polling) |
+| `REPLAY_CSV_PATH` | no | — | Path to CSV for replay mode. Format: `timestamp,open,high,low,close,volume` |
+| `TLS_CERT_PATH` | no | — | TLS certificate path (leave blank if host handles TLS) |
+| `TLS_KEY_PATH` | no | — | TLS private key path |
 
-### Frontend — create a `.env` file inside the `frontend/` folder
+**Production safety:** The server will refuse to start if `API_TOKEN` is the default value and `NODE_ENV=production`.
+
+### Frontend — `frontend/.env`
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `VITE_API_BASE_URL` | YES | `/api/v1` | Backend API base URL. In production: `https://your-backend.railway.app/api/v1` |
-| `VITE_API_TOKEN` | YES | — | Must match `API_TOKEN` on the backend exactly |
-| `VITE_SYMBOLS` | no | `BTC-USDT,ETH-USDT,SOL-USDT` | Comma-separated symbols shown in the HUD asset selector |
+| `VITE_API_BASE_URL` | YES | `/api/v1` | Backend URL. In production: `https://your-backend.railway.app/api/v1` |
+| `VITE_API_TOKEN` | YES | — | Must match backend `API_TOKEN` exactly |
+| `VITE_SYMBOLS` | no | `BTC-USDT,ETH-USDT,SOL-USDT` | Symbols shown in the HUD asset selector |
 | `VITE_DEFAULT_SYMBOL` | no | `BTC-USDT` | Symbol selected on first load |
 | `VITE_DEFAULT_TIMEFRAME` | no | `1m` | Timeframe label shown in the header |
 
@@ -101,35 +120,26 @@ Copy `.env.example` to `.env` and fill in:
 ## Running Locally
 
 ```bash
-# 1. Install backend dependencies
+# Backend
 npm install
+cp .env.example .env   # edit .env — set API_TOKEN
+npm run dev            # http://localhost:3000
 
-# 2. Create backend .env
-cp .env.example .env
-# Edit .env — set API_TOKEN at minimum
-
-# 3. Start backend (port 3000)
-npm run dev
-
-# 4. In a separate terminal — install frontend dependencies
+# Frontend (separate terminal)
 cd frontend
 npm install
-
-# 5. Start frontend (port 5173)
-npm run dev
+npm run dev            # http://localhost:5173
 ```
-
-Open `http://localhost:5173` — the HUD connects to the backend at `http://localhost:3000`.
 
 ---
 
 ## Running Tests
 
 ```bash
-# Backend tests (21 tests)
+# Backend (21 tests)
 npm test
 
-# Frontend tests (14 tests)
+# Frontend (14 tests)
 cd frontend
 npm test
 ```
@@ -138,23 +148,19 @@ npm test
 
 ## Production Deployment
 
-### Recommended Stack
-
-| Layer | Service |
-|---|---|
-| Backend | Railway, Render, or Fly.io |
-| Frontend | Netlify or Vercel |
-
 ### Backend on Railway
 
 1. Connect your GitHub repository to Railway
-2. Set environment variables in the Railway dashboard:
-   - `API_TOKEN` — your secret token
+2. Railway auto-detects Node.js and uses `railway.toml` for build/start commands
+3. Set environment variables in Railway dashboard:
+   - `API_TOKEN` — strong random secret
    - `ALLOWED_ORIGINS` — your Netlify frontend URL
    - `SYMBOLS` — e.g. `BTC-USDT,ETH-USDT,SOL-USDT`
-   - `LOG_DIR` — `/app/logs`
-3. Railway auto-detects Node.js and runs `npm start`
-4. Note your Railway URL — you will need it for the frontend
+   - `NODE_ENV` — `production`
+   - `LOG_DIR` — `/app/logs` (add a Persistent Volume in Railway for logs to survive redeploys)
+4. Note your Railway URL for the frontend
+
+**Important:** Railway uses ephemeral storage by default. Add a Persistent Volume mounted at `/app/logs` to retain journal logs across redeploys.
 
 ### Frontend on Netlify
 
@@ -164,69 +170,95 @@ npm test
    - Publish directory: `frontend/dist`
 3. Set environment variables in Netlify dashboard:
    - `VITE_API_BASE_URL` — your Railway URL + `/api/v1`
-   - `VITE_API_TOKEN` — same token as the backend `API_TOKEN`
+   - `VITE_API_TOKEN` — same as backend `API_TOKEN`
    - `VITE_SYMBOLS` — `BTC-USDT,ETH-USDT,SOL-USDT`
-4. The `netlify.toml` in the project root handles SPA routing automatically
+4. The `netlify.toml` handles SPA routing automatically
+
+### Docker (alternative)
+
+```bash
+docker build -t analytical-hud .
+docker run -p 3000:3000 \
+  -e API_TOKEN=your-secret \
+  -e ALLOWED_ORIGINS=https://your-frontend.com \
+  -e NODE_ENV=production \
+  analytical-hud
+```
+
+---
+
+## CI/CD
+
+GitHub Actions workflows are in `.github/workflows/`:
+
+- `ci.yml` — runs on every push and pull request: TypeScript check, tests, build, `npm audit` security scan for both backend and frontend
+- `deploy.yml` — runs on push to `main` only: deploys backend to Railway, then frontend to Netlify
+
+Required GitHub Secrets for deployment:
+- `RAILWAY_TOKEN` — Railway API token
+- `NETLIFY_AUTH_TOKEN` — Netlify personal access token
+- `NETLIFY_SITE_ID` — Netlify site ID
+- `VITE_API_BASE_URL` — production backend URL
+- `VITE_API_TOKEN` — production API token
+- `VITE_SYMBOLS` — production symbol list
 
 ---
 
 ## Adding More Symbols
 
-Adding a new asset is a two-step env var change — no code edits needed.
+Two env var changes, no code edits:
 
-**Step 1 — Backend** (root `.env`):
+**Backend** (root `.env`):
 ```
 SYMBOLS=BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT
 ```
 
-**Step 2 — Frontend** (`frontend/.env` or Netlify env vars):
+**Frontend** (`frontend/.env` or Netlify env vars):
 ```
 VITE_SYMBOLS=BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT
 ```
 
-**Step 3 — Restart both** backend and frontend.
-
-The HUD header will automatically show a new tab for the added symbol. Clicking the tab or a dashboard card switches all 8 panels to that asset and resets the graph history for a clean chart.
-
-Each symbol runs its own independent pipeline with a 2-second stagger to avoid Kraken rate limits.
+Restart both. The HUD header shows a tab per symbol. Clicking a tab or dashboard card switches all 8 panels to that asset and resets the graph.
 
 ---
 
 ## API Reference
 
-All endpoints (except `/health` and `/api/v1/system/versions`) require:
-
+All endpoints except `/health` and `/api/v1/system/versions` require:
 ```
 Authorization: Bearer <API_TOKEN>
 ```
 
-All responses include: `X-Contract-Version: 1.0.0`
+All responses include:
+- `X-Contract-Version: 1.0.0`
+- `X-Request-Id: <uuid>` (for request tracing)
+- `ETag: "<bundleSeq>"` (on `/analysis/live` — supports 304 Not Modified)
 
 ---
 
 ### GET /health
 
-No auth required. Returns `200 OK` when pipeline is ready, `503` while starting.
+No auth. Returns `200` when pipeline is ready, `503` while starting.
 
 ```json
-{ "status": "ok", "symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT"], "timestamp": "..." }
+{ "status": "ok", "symbols": ["BTC-USDT"], "timestamp": "..." }
 ```
 
 ---
 
 ### GET /api/v1/system/versions
 
-No auth required. Returns engine versions.
+No auth. Returns engine versions and contract version.
 
 ---
 
 ### GET /api/v1/analysis/live
 
-Returns the full pipeline result for one symbol.
+Full pipeline result for one symbol.
 
-**Query params:** `symbol`, `timeframe`
+**Query params:** `symbol`, `timeframe` (must match backend `TIMEFRAME` env var)
 
-**Response shape:**
+**Response:**
 ```json
 {
   "symbol": "BTC-USDT",
@@ -264,6 +296,18 @@ Returns the full pipeline result for one symbol.
     "cooldownRemaining": 0,
     "alignmentScore": 0.28
   },
+  "scoring": {
+    "probability": 42.3,
+    "contributions": {
+      "geometry": 35.2,
+      "liquidity": 40.0,
+      "microstructure": 28.5,
+      "orderflow": 55.1,
+      "volatility": 75.0,
+      "macro": 50.0,
+      "session": 80.0
+    }
+  },
   "liquidity": {
     "zones": [
       { "id": "STOP_CLUSTER_83421_1", "type": "STOP_CLUSTER",
@@ -292,17 +336,13 @@ Returns the full pipeline result for one symbol.
 }
 ```
 
-**Liquidity zone types:** `STOP_CLUSTER`, `LIQ_SHELF`, `FVG`, `IMBALANCE`, `RESISTANT_CLUSTER`
-
-**Geometry regimes:** `STABLE_STRUCTURE`, `EXPANDING_STRUCTURE`, `COLLAPSING_STRUCTURE`, `CHAOTIC_STRUCTURE`
-
-**System states:** `IDLE`, `WAITING_FOR_RETEST`, `IN_TRADE`, `COOLDOWN`
+**Note:** `timeframe` must match the backend's configured `TIMEFRAME`. Returns HTTP 400 if mismatched.
 
 ---
 
 ### GET /api/v1/analysis/dashboard
 
-Returns a compact summary for multiple symbols simultaneously.
+Compact summary for multiple symbols.
 
 **Query params:** `symbols` (comma-separated)
 
@@ -322,25 +362,23 @@ Returns a compact summary for multiple symbols simultaneously.
 
 ### GET /api/v1/diagnostics/performance
 
-Returns pipeline cycle timing (last 100 cycles): `p50`, `p95`, `p99` in milliseconds.
+Pipeline cycle timing (last 100 cycles): `p50`, `p95`, `p99` in milliseconds.
 
 ---
 
 ### GET /api/v1/diagnostics/journal
 
-Returns journal log entries.
+Journal log entries with filtering.
 
 **Query params:** `engine`, `from` (ISO 8601), `to` (ISO 8601), `page`, `pageSize`
 
-**Log entry types:** `ENGINE`, `STATE_TRANSITION`, `RISK_REJECTION`, `MICRO_EVENT`, `SYSTEM_DIAGNOSTIC`
+**Log types:** `ENGINE`, `STATE_TRANSITION`, `RISK_REJECTION`, `MICRO_EVENT`, `SYSTEM_DIAGNOSTIC`
 
 ---
 
 ### POST /api/v1/replay/activate
 
-Activate or deactivate replay mode. Requires `REPLAY_CSV_PATH` set on backend.
-
-**Body:** `{ "active": true }`
+**Body:** `{ "active": true }` — requires `REPLAY_CSV_PATH` set on backend.
 
 ---
 
@@ -352,13 +390,15 @@ Step forward one candle in replay mode.
 
 ### POST /api/v1/replay/seek
 
-Jump to a specific candle. **Body:** `{ "candleIndex": 42 }`
+Jump to candle index. **Body:** `{ "candleIndex": 42 }` — resets StateMachine state.
 
 ---
 
 ## Rate Limiting
 
-60 requests per minute per IP. Exceeded: `HTTP 429`, `Retry-After: 60`.
+Default: 120 requests per minute per IP (configurable via `RATE_LIMIT_RPM`).
+
+Exceeded: `HTTP 429`, `Retry-After: 60`.
 
 ---
 
@@ -366,8 +406,8 @@ Jump to a specific candle. **Body:** `{ "candleIndex": 42 }`
 
 | Panel | What it shows |
 |---|---|
-| Prediction Graph | Strict line, smoothed line, confidence bands (50/80/95%), min/max zone. Color changes with geometry regime |
-| Diagnostics | Probability score, EDD, stop/target ranges, EV, volatility regime, stress state, reject reasons, weight sliders |
+| Prediction Graph | Alignment score history, volatility envelopes (Wide/Mid/Narrow), min/max zone. Color changes with geometry regime |
+| Diagnostics | Probability score, EDD, stop/target ranges, EV, volatility regime, stress state, reject reasons, weight sliders (local preview) |
 | Liquidity Map | Stop clusters, liquidation shelves, FVGs, imbalance zones, resistant clusters with strength |
 | Geometry Panel | Curvature, imbalance, rotation, collapse/breakout probability, geometry regime, micro-state |
 | Microstructure Panel | Sweep, BOS, divergence, CVD divergence, retest zone, HTF alignment, alignment score |
@@ -379,36 +419,49 @@ Jump to a specific candle. **Body:** `{ "candleIndex": 42 }`
 
 ## Sound Alerts
 
-The HUD plays distinct audio cues for each event type using the Web Audio API (no external files required). Sounds activate automatically after the first user interaction with the page.
+Sounds activate after the first user interaction with the page (browser requirement).
 
-| Event | Sound | Description |
-|---|---|---|
-| BOS Confirmed | Two-note ascending chime (C5 → G5) | Clean, bright — "structure broken" |
-| Sweep Detected | Sharp downward glide (880Hz → 330Hz) | Aggressive sweep sound — "liquidity taken" |
-| Retest Zone | Soft triple ping (same note × 2, then up) | Gentle — "opportunity forming" |
-| Volatility → EXTREME | Double descending sawtooth alarm | Harsh, urgent — "danger" |
-| Volatility change (other) | Gentle ascending triangle tones | Soft notification |
-| Stress → HALT | Three descending sawtooth pulses | Low, urgent — "stop everything" |
-| Stress change (other) | Soft ascending resolution chord | Calm — "all clear" |
-| Geometry Collapse | Three descending triangle pulses | Fading — "structure weakening" |
+| Event | Sound |
+|---|---|
+| BOS Confirmed | Two-note ascending chime (C5 → G5) |
+| Sweep Detected | Sharp downward glide (880Hz → 330Hz) |
+| Retest Zone | Soft triple ping |
+| Volatility → EXTREME | Double descending sawtooth alarm |
+| Volatility change (other) | Gentle ascending tones |
+| Stress → HALT | Three descending sawtooth pulses |
+| Stress change (other) | Soft ascending resolution chord |
+| Geometry Collapse | Three fading triangle pulses |
 
 ---
 
 ## Replay Mode
 
-1. Prepare a CSV file: `timestamp,open,high,low,close,volume`
-2. Set `REPLAY_CSV_PATH=/path/to/file.csv` on the backend
-3. In the HUD, click "Enter Replay" in the Replay Panel
+1. Prepare CSV: `timestamp,open,high,low,close,volume`
+2. Set `REPLAY_CSV_PATH=/path/to/file.csv` on backend
+3. Click "Enter Replay" in the Replay Panel
 4. Use "Step" to advance one candle, or "Seek" to jump to a specific index
+5. Seeking backwards resets the StateMachine to prevent future-knowledge contamination
 
 ---
 
 ## Journal Logs
 
-All pipeline events logged to two places simultaneously:
-
 - **Memory** — last 10,000 entries, queryable via `/api/v1/diagnostics/journal`
-- **Disk** — `LOG_DIR` directory, JSONL format, one file per day, compressed after 1 hour, retained 7 days, max 10GB
+- **Disk** — `LOG_DIR`, JSONL format, one file per day, compressed after 1 hour, retained 7 days, max 10GB
+- **Note:** Railway requires a Persistent Volume for disk logs to survive redeploys
+
+---
+
+## Security
+
+- Bearer token authentication on all API endpoints
+- HSTS with preload, CSP, X-Frame-Options: DENY, X-Content-Type-Options
+- CORS origin whitelist via `ALLOWED_ORIGINS`
+- Request ID (`X-Request-Id`) on every response for tracing
+- Query parameter sanitization (control character stripping, 200-char truncation)
+- Request logging (method, path, status, duration — never logs auth tokens)
+- Production startup validation — refuses to start with default `API_TOKEN`
+- Rate limiting: 120 req/min per IP (configurable)
 
 ---
 
@@ -417,13 +470,13 @@ All pipeline events logged to two places simultaneously:
 - No buy/sell/long/short/entry/exit/PnL language anywhere in the UI
 - RiskManager hard-rejects when: GlobalStress ≠ SAFE, probability < 80%, volatility = EXTREME, geometry unstable, or microstructure incomplete
 - No broker connections, no order placement, no financial advice
+- System state `IN_TRADE` is displayed as "HIGH ALIGNMENT" in the UI
 
 ---
 
 ## Supported Symbols
 
-Any Kraken-supported pair. Examples:
-
+Any Kraken-supported pair:
 ```
 BTC-USDT   ETH-USDT   SOL-USDT   XRP-USDT
 ADA-USDT   DOGE-USDT  AVAX-USDT  DOT-USDT
@@ -432,11 +485,47 @@ BTC-USD    ETH-USD    SOL-USD
 
 ---
 
-## Troubleshooting
+## Important Notes Before Going Live
+
+### 1. Macro Data Source (Yahoo Finance)
+
+The system uses Yahoo Finance's unofficial endpoint for DXY, VIX, SPX, and Gold prices. This works for development and demo use but **Yahoo Finance's Terms of Service prohibit commercial use** of their unofficial API.
+
+For a commercial production deployment, replace it with a paid macro data feed:
+- [Alpha Vantage](https://www.alphavantage.co/) — free tier available, paid for higher frequency
+- [Polygon.io](https://polygon.io/) — reliable, well-documented
+- [Quandl/Nasdaq Data Link](https://data.nasdaq.com/) — institutional grade
+
+The system falls back to hardcoded defaults (DXY=104, VIX=18, SPX=5200, Gold=2350) if Yahoo is unavailable, so the pipeline never crashes — but macro-dependent engines (MacroBiasEngine, GlobalStressEngine) will use stale values.
+
+### 2. Railway Persistent Volume
+
+Railway uses **ephemeral storage by default** — every redeploy wipes the filesystem. This means journal logs (`LOG_DIR=/app/logs`) are lost on every deployment.
+
+To retain logs across redeploys:
+1. Go to your Railway service → Settings → Volumes
+2. Add a volume mounted at `/app/logs`
+3. This is a paid Railway feature (~$0.25/GB/month)
+
+Without a persistent volume, the in-memory journal (last 10,000 entries) still works and is queryable via the API — only disk logs are affected.
+
+### 3. The Alignment Score Is Not a Price Prediction
+
+The primary output `strictLine` (displayed as "Alignment Score") is a **0–1 composite of market condition signals**. It tells you how aligned current conditions are across geometry, liquidity, volatility, microstructure, orderflow, and macro.
+
+It does **not** predict price direction, price levels, or percentage moves. Users of the HUD should understand:
+- Score near 1.0 = conditions broadly favorable/aligned
+- Score near 0.0 = conditions unfavorable/misaligned
+- The volatility envelopes (Wide/Mid/Narrow) show expected score variability, not statistical confidence intervals
+- The probability score (0–100) reflects multi-domain alignment strength, not a calibrated probability of any specific market outcome
+
+---
 
 **HUD shows "Stale Data"** — Backend unreachable. Check `VITE_API_BASE_URL` and that the backend is running.
 
-**503 on first load** — Backend just started, pipeline hasn't completed its first cycle. Wait 5–10 seconds.
+**503 on first load** — Backend just started. Wait ~20 seconds for the candle window to populate (requires 20 closed candles).
+
+**HTTP 400 on /analysis/live** — Requested `timeframe` doesn't match backend `TIMEFRAME` env var.
 
 **"Replay not configured"** — `REPLAY_CSV_PATH` not set or file doesn't exist.
 
@@ -445,3 +534,5 @@ BTC-USD    ETH-USD    SOL-USD
 **Pipeline degraded alert** — One or more engines failed. System continues with fallback values. Check backend logs.
 
 **No sounds** — Browser requires a user interaction before audio can play. Click anywhere on the page first.
+
+**Logs lost on Railway redeploy** — Add a Persistent Volume mounted at `/app/logs` in Railway settings.

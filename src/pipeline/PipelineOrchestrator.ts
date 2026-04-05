@@ -367,7 +367,15 @@ export class PipelineOrchestrator {
                 return Math.max(0, Math.min(1, stableAlignment));
             })(),
             O: stableO,
-            X: macroBias === 'LONG' ? 0.7 : macroBias === 'SHORT' ? 0.3 : 0.5,
+            // X encodes macro bias + stress state combined.
+            // LONG=0.7, NEUTRAL=0.5, SHORT=0.3 — then stress adjusts:
+            // HALT reduces X toward 0.1 (extreme caution), CAUTION reduces slightly.
+            X: (() => {
+                const macroBase = macroBias === 'LONG' ? 0.7 : macroBias === 'SHORT' ? 0.3 : 0.5;
+                return globalStress === 'HALT' ? Math.min(macroBase, 0.2)
+                    : globalStress === 'CAUTION' ? macroBase * 0.7
+                        : macroBase;
+            })(),
             weights: { w1: 0.15, w2: 0.25, w3: 0.15, w4: 0.20, w5: 0.15, w6: 0.10 },
             atr: bundle.volatility.atr,
             volatilityFactor: 1.0,
@@ -379,12 +387,20 @@ export class PipelineOrchestrator {
                 for (const z of liquidityMap.zones) {
                     const mid = (z.priceMin + z.priceMax) / 2;
                     const distATR = Math.max(0.1, Math.abs(bundle.price.close - mid) / Math.max(bundle.volatility.atr, 1));
+                    // proximityWeight = 1/(1 + distanceInATR) — inverse linear decay
+                    // At 0 ATR distance: weight = 1.0 (maximum pull)
+                    // At 1 ATR distance: weight = 0.5
+                    // At 5 ATR distance: weight = 0.17
+                    // This gives strong local pull and diminishing distant pull
                     const proximityWeight = 1 / (1 + distATR);
                     const score = z.strength * proximityWeight * collapseBoost;
                     if (score > bestScore) bestScore = score;
                 }
                 return Math.min(1, Math.tanh(bestScore));
             })(),
+            // distanceToPrice is expressed in ATR units (asset-agnostic normalization).
+            // This matches the proximityWeight calculation above and prevents LiquidityBias
+            // from being asset-dependent (e.g., BTC at $60k vs SOL at $150).
             distanceToPrice: liquidityMap.zones.length > 0
                 ? Math.max(
                     Math.abs(bundle.price.close - (liquidityMap.zones[0].priceMin + liquidityMap.zones[0].priceMax) / 2) / Math.max(bundle.volatility.atr, 1),
@@ -397,7 +413,7 @@ export class PipelineOrchestrator {
             // Pass persisted smoothed value and incrementing signal age for proper smoothing/decay
             previousSmoothed: this.prevSmoothed,
             signalAge: this.signalAge,
-            decayHalfLife: 30,
+            volatilityRegime,
         });
         const prediction: PredictionOutput = isEngineError(predResult)
             ? (fail('PredictionEngine', predResult), DEFAULT_PREDICTION())

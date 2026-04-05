@@ -30,8 +30,9 @@ export const GlobalStressEngine: Engine<GlobalStressInput, StressState> = {
         // Stressor 1: extreme volatility regime
         if (input.volatilityRegime === 'EXTREME') stressorCount++;
 
-        // Stressor 2: high vix or high dxy
-        if (input.macro.vix > 30 || input.macro.dxy > 110) stressorCount++;
+        // Stressor 2: high vix or high dxy (2026-calibrated thresholds)
+        // VIX > 35 = extreme fear; DXY > 108 = strong dollar stress
+        if (input.macro.vix > 35 || input.macro.dxy > 108) stressorCount++;
 
         // Stressor 3: thin liquidity (fewer than 2 stop clusters)
         if (input.liquidity.stopClusters.length < 2) stressorCount++;

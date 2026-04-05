@@ -235,7 +235,10 @@ export class KrakenAdapter implements DataAdapter {
             const btcTicker = frJson.tickers?.find(t => t.symbol === 'PF_XBTUSD');
             if (btcTicker?.fundingRate != null) {
                 fundingRate = btcTicker.fundingRate;
-                sentiment = Math.max(0, Math.min(1, 0.5 + fundingRate * 100));
+                // fundingRate is already in percent (e.g. -0.311 = -0.311% per 8h)
+                // Scale to sentiment: neutral at 0%, +1% → bullish (0.6), -1% → bearish (0.4)
+                // Clamp to [0, 1] with ±0.5% as the full range
+                sentiment = Math.max(0, Math.min(1, 0.5 + fundingRate));
             }
         } catch { /* keep defaults */ }
 

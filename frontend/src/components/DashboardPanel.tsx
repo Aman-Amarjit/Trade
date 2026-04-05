@@ -48,6 +48,15 @@ const STATE_CLASS: Record<string, string> = {
     COOLDOWN: 'state-cooldown',
 };
 
+// Display labels for state names — IN_TRADE is shown as "HIGH ALIGNMENT" in the UI
+// to reflect its meaning (high signal alignment), while the backend API name is unchanged.
+const STATE_LABELS: Record<string, string> = {
+    IDLE: 'IDLE',
+    WAITING_FOR_RETEST: 'WAITING',
+    IN_TRADE: 'HIGH ALIGNMENT',
+    COOLDOWN: 'COOLDOWN',
+};
+
 export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelProps): React.ReactElement {
     const [summaries, setSummaries] = useState<AssetSummary[]>([]);
     const [lastFetch, setLastFetch] = useState<string | null>(null);
@@ -129,7 +138,7 @@ export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelP
                                             )}
                                             {s.state && (
                                                 <span className={`badge ${STATE_CLASS[s.state] ?? ''}`}>
-                                                    {s.state.replace(/_/g, ' ')}
+                                                    {STATE_LABELS[s.state] ?? s.state.replace(/_/g, ' ')}
                                                 </span>
                                             )}
                                         </div>

@@ -1,0 +1,8 @@
+node_modules
+dist
+frontend
+.git
+.env
+*.log
+logs/
+.github/

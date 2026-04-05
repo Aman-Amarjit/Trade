@@ -4,6 +4,7 @@ import type {
     PredictionOutput,
     RegimePersistence,
     SessionType,
+    VolatilityRegime,
 } from '../../../shared/types/index.js';
 
 export interface PredictionInput {
@@ -23,7 +24,8 @@ export interface PredictionInput {
     sessionType: SessionType;
     assetVolatilityProfile: number;
     signalAge: number;
-    decayHalfLife: number;
+    // decayHalfLife is now derived internally from volatilityRegime — no longer a magic constant
+    volatilityRegime: 'LOW' | 'NORMAL' | 'HIGH' | 'EXTREME';
 }
 
 const SESSION_FACTORS: Record<SessionType, number> = {
@@ -45,7 +47,14 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
 
         const { G, L, V, M, O, X, weights, atr, volatilityFactor, attractorStrength,
             distanceToPrice, previousSmoothed, regimePersistence, sessionType,
-            assetVolatilityProfile, signalAge, decayHalfLife } = input;
+            assetVolatilityProfile, signalAge, volatilityRegime } = input;
+
+        // Decay half-life T: deterministic from volatility regime (spec says "increases during high volatility")
+        // LOW=40 cycles, NORMAL=30, HIGH=20, EXTREME=10 — higher volatility = faster decay
+        const DECAY_HALF_LIFE: Record<string, number> = {
+            LOW: 40, NORMAL: 30, HIGH: 20, EXTREME: 10,
+        };
+        const decayHalfLife = DECAY_HALF_LIFE[volatilityRegime] ?? 30;
 
         // Validate inputs in [0,1]
         for (const [name, val] of [['G', G], ['L', L], ['V', V], ['M', M], ['O', O], ['X', X]] as [string, number][]) {
@@ -109,6 +118,10 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         const smoothed = alpha * strictLine + (1 - alpha) * (previousSmoothed ?? strictLine);
 
         // Formula 16/34 — Signal decay (on session-adjusted value)
+        // "SignalStrength" in the spec refers to the current strictLine value.
+        // decayed = strictLine × e^(-signalAge/T)
+        // This represents how much the current prediction would weaken if the signal is old.
+        // signalAge increments each pipeline cycle; T is derived from volatility regime.
         const T = Math.max(20, Math.min(40, decayHalfLife));
         const decayed = strictLine * Math.exp(-signalAge / T);
 

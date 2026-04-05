@@ -12,15 +12,15 @@ exports[`Snapshot tests — all 15 engines > AssetProfileEngine snapshot 1`] = `
 exports[`Snapshot tests — all 15 engines > GeometryClassifier snapshot 1`] = `
 {
   "breakoutProb": 0.6224593312018546,
-  "collapseProb": 0.544524604169431,
-  "curvature": 0.75,
-  "geometryRegime": "CHAOTIC_STRUCTURE",
+  "collapseProb": 0.2689414213699951,
+  "curvature": 0,
+  "geometryRegime": "STABLE_STRUCTURE",
   "imbalance": 0,
-  "isStable": false,
-  "microState": "up-chaotic",
+  "isStable": true,
+  "microState": "up-stable",
   "rotation": 0.5,
   "rotationPressure": 0.5,
-  "structurePressure": 0.5714285714285714,
+  "structurePressure": 1,
 }
 `;
 
@@ -44,7 +44,7 @@ exports[`Snapshot tests — all 15 engines > LiquidityMapEngine snapshot 1`] = `
 }
 `;
 
-exports[`Snapshot tests — all 15 engines > MacroBiasEngine snapshot 1`] = `"NEUTRAL"`;
+exports[`Snapshot tests — all 15 engines > MacroBiasEngine snapshot 1`] = `"LONG"`;
 
 exports[`Snapshot tests — all 15 engines > MarketStructureContextEngine snapshot 1`] = `
 {

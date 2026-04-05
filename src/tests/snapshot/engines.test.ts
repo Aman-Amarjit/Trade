@@ -104,7 +104,7 @@ describe('Snapshot tests — all 15 engines', () => {
 
     it('GeometryClassifier snapshot', () => {
         const result = GeometryClassifier.execute({
-            priceSeries: [50000, 50100, 50050],
+            priceSeries: [49900, 50000, 50100, 50050],
             atr: 200, wickUp: 50, wickDown: 50, zWicks: 200,
             askVolume: 250, bidVolume: 250,
         });
@@ -136,7 +136,8 @@ describe('Snapshot tests — all 15 engines', () => {
             weights: { w1: 0.15, w2: 0.25, w3: 0.15, w4: 0.20, w5: 0.15, w6: 0.10 },
             atr: 200, volatilityFactor: 1.0, attractorStrength: 0.5, distanceToPrice: 100,
             regimePersistence: 'MEDIUM_PERSISTENCE', sessionType: 'NEWYORK',
-            assetVolatilityProfile: 0.6, signalAge: 5, decayHalfLife: 30,
+            assetVolatilityProfile: 0.6, signalAge: 5,
+            volatilityRegime: 'NORMAL',
         });
         // Mask the dynamic timestamp so the snapshot is stable across runs
         const stableResult = 'type' in (result as object) ? result : { ...result as object, timestamp: '<MASKED>' };

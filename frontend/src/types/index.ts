@@ -74,7 +74,7 @@ export interface GeometryOutput {
     breakoutProb: number | null;
     geometryRegime: GeometryRegime | null;
     microState: string | null;
-    isStable: boolean;
+    isStable: boolean; // derived from geometryRegime
 }
 
 export interface MicrostructureOutput {
@@ -84,7 +84,7 @@ export interface MicrostructureOutput {
     bosDetected: boolean;
     retestZone: boolean;
     htfAlignment: boolean;
-    alignmentScore: number;
+    alignmentScore: number; // [0, 1]
 }
 
 export interface OrderflowOutput {
@@ -104,6 +104,7 @@ export interface LiveAnalysisResponse {
     liquidity: LiquidityMapOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
+    scoring?: { probability: number; contributions: Record<string, number> };
     timestamp: string;
     degraded?: boolean;
     failedEngines?: string[];

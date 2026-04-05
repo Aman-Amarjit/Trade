@@ -4,6 +4,15 @@
 import React, { useEffect } from 'react';
 import { useLiveStore } from '../state/liveStore';
 
+// Display labels for state names — IN_TRADE is shown as "HIGH ALIGNMENT" in the UI
+// to reflect its meaning (high signal alignment), while the backend API name is unchanged.
+const STATE_LABELS: Record<string, string> = {
+    IDLE: 'IDLE',
+    WAITING_FOR_RETEST: 'WAITING',
+    IN_TRADE: 'HIGH ALIGNMENT',
+    COOLDOWN: 'COOLDOWN',
+};
+
 export function AlertsPanel(): React.ReactElement {
     const alerts = useLiveStore(s => s.alerts);
     const isStale = useLiveStore(s => s.isStale);
@@ -42,7 +51,7 @@ export function AlertsPanel(): React.ReactElement {
 
             {state && state.state !== 'IDLE' && (
                 <div className="alert info" role="status">
-                    System state: {state.state} — {state.reason}
+                    System state: {STATE_LABELS[state.state] ?? state.state} — {state.reason}
                 </div>
             )}
 

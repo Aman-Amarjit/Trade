@@ -42,15 +42,24 @@ export class CsvReplayAdapter implements DataAdapter {
         this.bars = dataLines
             .map((line) => {
                 const [timestamp, open, high, low, close, volume] = line.split(',');
-                return {
-                    timestamp: timestamp.trim(),
+                const bar = {
+                    timestamp: timestamp?.trim() ?? '',
                     open: parseFloat(open),
                     high: parseFloat(high),
                     low: parseFloat(low),
                     close: parseFloat(close),
-                    volume: parseFloat(volume),
+                    volume: parseFloat(volume ?? '0'),
                 };
+                return bar;
             })
+            // Filter out rows with invalid/NaN values before processing
+            .filter(b =>
+                b.timestamp.length > 0 &&
+                isFinite(b.open) && isFinite(b.high) &&
+                isFinite(b.low) && isFinite(b.close) &&
+                isFinite(b.volume) && b.volume >= 0 &&
+                b.high >= b.low
+            )
             // Strict chronological order
             .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         this.loaded = true;

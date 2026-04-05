@@ -23,6 +23,12 @@ const API_TOKEN = process.env['API_TOKEN'] ?? 'dev-token-change-me';
 const TIMEFRAME = process.env['TIMEFRAME'] ?? '1m';
 const REPLAY_CSV_PATH = process.env['REPLAY_CSV_PATH'] ?? '';
 
+// Fail fast in production if the default insecure token is still set
+if (process.env['NODE_ENV'] === 'production' && API_TOKEN === 'dev-token-change-me') {
+    console.error('[FATAL] API_TOKEN is set to the default insecure value. Set a strong secret in your environment variables before deploying.');
+    process.exit(1);
+}
+
 // ── To add more symbols, just add them here ───────────────────────────────────
 const ACTIVE_SYMBOLS: string[] = (process.env['SYMBOLS'] ?? 'BTC-USDT,ETH-USDT,SOL-USDT')
     .split(',').map(s => s.trim()).filter(Boolean);
@@ -35,6 +41,10 @@ const POLL_INTERVAL_MS = Math.max(6000, ACTIVE_SYMBOLS.length * SYMBOL_STAGGER_M
 const CANDLE_WINDOW_SIZE = 20;
 const STRUCTURE_WINDOW_SIZE = 50;
 const STRUCTURE_FETCH_INTERVAL_MS = 30_000;
+
+// EMA smoothing constants — document effective window sizes
+const EMA_ALPHA_SLOW = 0.1;  // ~19 candle effective window for ATR, volume
+const EMA_ALPHA_FAST = 0.3;  // ~6 candle effective window for bandwidth
 
 // ── Volatility helper ─────────────────────────────────────────────────────────
 function computeVolatilityFromBars(bars: Array<{ high: number; low: number; close: number; open: number; volume: number; timestamp: string }>): VolatilityMetrics {
@@ -76,6 +86,9 @@ interface SymbolState {
     candleWindow1m: Array<{ high: number; low: number; open: number; close: number; timestamp: string }>;
     candleWindow15m: Array<{ high: number; low: number; open: number; close: number; timestamp: string }>;
     lastStructureFetch: number;
+    // Persistent FVG fill tracking — zones are marked filled when price trades through them.
+    // This persists across cycles so fills are not lost between pipeline runs.
+    filledFvgIds: Set<string>;
 }
 
 const adapter = new DataLayer(new KrakenAdapter(), new MockAdapter(), { timeoutMs: 5000 });
@@ -85,10 +98,14 @@ const symbolStates = new Map<string, SymbolState>();
 for (const sym of ACTIVE_SYMBOLS) {
     symbolStates.set(sym, {
         orchestrator: new PipelineOrchestrator(),
+        // previousCvd starts at 0 on each restart — this is acceptable since CVD is a
+        // relative measure and will converge after the first cycle. CVD is per-symbol
+        // (stored in symbolStates) so switching symbols does not corrupt CVD state.
         rollingStats: { rollingMeanVolume: 500, rollingATR: 200, rollingDeltaStd: 10, atrPercentile: 0.5, bandwidth: 0.04, previousCvd: 0 },
         candleWindow1m: [],
         candleWindow15m: [],
         lastStructureFetch: 0,
+        filledFvgIds: new Set<string>(),
     });
 }
 
@@ -100,9 +117,12 @@ async function runSymbolCycle(symbol: string): Promise<void> {
     const state = symbolStates.get(symbol);
     if (!state) return;
     try {
-        const bars = await adapter.fetchOHLCV(symbol, TIMEFRAME, 20);
-        if (bars.length === 0) return;
-        const bar = bars[bars.length - 1];
+        const bars = await adapter.fetchOHLCV(symbol, TIMEFRAME, 21); // fetch 21, use 20 closed
+        if (bars.length < 2) return;
+        // Skip the last (still-open) candle — use only confirmed closed candles.
+        // The most recent bar from Kraken is the current incomplete candle.
+        const closedBars = bars.slice(0, -1);
+        const bar = closedBars[closedBars.length - 1];
 
         // Validate OHLCV integrity before processing
         const barValidation = validateOHLCV(bar);
@@ -112,11 +132,11 @@ async function runSymbolCycle(symbol: string): Promise<void> {
         }
         const orderflow = await adapter.fetchOrderflow(symbol);
         const macro = await adapter.fetchMacroIndicators();
-        const volatility = computeVolatilityFromBars(bars);
+        const volatility = computeVolatilityFromBars(closedBars);
 
         // Seed 1-min window on first cycle
-        if (state.candleWindow1m.length === 0 && bars.length > 1) {
-            for (const b of bars.slice(-CANDLE_WINDOW_SIZE)) {
+        if (state.candleWindow1m.length === 0 && closedBars.length > 1) {
+            for (const b of closedBars.slice(-CANDLE_WINDOW_SIZE)) {
                 state.candleWindow1m.push({ high: b.high, low: b.low, open: b.open, close: b.close, timestamp: b.timestamp });
             }
         } else {
@@ -139,13 +159,27 @@ async function runSymbolCycle(symbol: string): Promise<void> {
 
         const structureWindow = state.candleWindow15m.length >= 3 ? state.candleWindow15m : state.candleWindow1m;
 
+        // Derive HTF trend from 15m candle window (higher-timeframe context for MicroStructureEngine).
+        // Uses last 4 candles: higher highs + higher lows = UP, lower highs + lower lows = DOWN.
+        let htfTrend: 'UP' | 'DOWN' | 'RANGE' = 'RANGE';
+        if (state.candleWindow15m.length >= 3) {
+            const recentHighs = state.candleWindow15m.slice(-4).map(c => c.high);
+            const recentLows = state.candleWindow15m.slice(-4).map(c => c.low);
+            const highsUp = recentHighs[recentHighs.length - 1] > recentHighs[0];
+            const lowsUp = recentLows[recentLows.length - 1] > recentLows[0];
+            const highsDown = recentHighs[recentHighs.length - 1] < recentHighs[0];
+            const lowsDown = recentLows[recentLows.length - 1] < recentLows[0];
+            if (highsUp && lowsUp) htfTrend = 'UP';
+            else if (highsDown && lowsDown) htfTrend = 'DOWN';
+        }
+
         // Update rolling stats
         if (volatility.atr > 0) {
             state.rollingStats.rollingATR = state.rollingStats.rollingATR === 200
                 ? volatility.atr
-                : state.rollingStats.rollingATR * 0.9 + volatility.atr * 0.1;
+                : state.rollingStats.rollingATR * (1 - EMA_ALPHA_SLOW) + volatility.atr * EMA_ALPHA_SLOW;
         }
-        if (bar.volume > 0) state.rollingStats.rollingMeanVolume = state.rollingStats.rollingMeanVolume * 0.9 + bar.volume * 0.1;
+        if (bar.volume > 0) state.rollingStats.rollingMeanVolume = state.rollingStats.rollingMeanVolume * (1 - EMA_ALPHA_SLOW) + bar.volume * EMA_ALPHA_SLOW;
         if (bar.close > 0) state.rollingStats.bandwidth = Math.min(1, (bar.high - bar.low) / bar.close);
         state.rollingStats.atrPercentile = volatility.atrPercentile;
 
@@ -165,7 +199,7 @@ async function runSymbolCycle(symbol: string): Promise<void> {
 
         const bundle = assembleBundle({
             bar, orderflow, volatility, macro,
-            swings: [], trend: 'RANGE',
+            swings: [], trend: htfTrend,
             internalSwings: [], externalSwings: [],
             fvg: [], stopClusters: [], liqShelves: [],
             sessionType, sessionVolatilityPattern,
@@ -174,8 +208,19 @@ async function runSymbolCycle(symbol: string): Promise<void> {
         const result = await state.orchestrator.run(bundle, structureWindow);
         latestResults.set(symbol, result);
 
-        // Mark ready when primary symbol has its first result
-        if (symbol === ACTIVE_SYMBOLS[0]) {
+        // Mark FVGs as filled if current price traded through them (persistent across cycles)
+        const currentPrice = bundle.price.close;
+        for (const zone of result.structure.liquidityMap.zones) {
+            if (zone.type === 'FVG' && !zone.filled) {
+                if (currentPrice >= zone.priceMin && currentPrice <= zone.priceMax) {
+                    state.filledFvgIds.add(zone.id);
+                }
+            }
+        }
+
+        // Only mark pipeline ready after the candle window is sufficiently populated
+        // to ensure geometry and structure engines have enough history.
+        if (symbol === ACTIVE_SYMBOLS[0] && state.candleWindow1m.length >= CANDLE_WINDOW_SIZE) {
             recordCycleDuration(result.durationMs);
             pipelineReady = true;
         }
@@ -272,6 +317,10 @@ const app = createApiServer({
     seekReplay: replayAdapter ? async (index: number) => {
         if (replayAdapter) {
             replayAdapter.reset();
+            // Reset the replay orchestrator state so seeking backwards doesn't
+            // carry forward knowledge of events that haven't happened yet in the timeline.
+            // This creates a fresh StateMachine, smoothed inputs, and signal age.
+            Object.assign(replayOrchestrator, new PipelineOrchestrator());
             for (let i = 0; i < index; i++) {
                 await replayAdapter.fetchOHLCV(primarySymbol, TIMEFRAME, 1);
             }
@@ -308,4 +357,16 @@ ACTIVE_SYMBOLS.forEach((symbol, i) => {
         runSymbolCycle(symbol);
         setInterval(() => runSymbolCycle(symbol), POLL_INTERVAL_MS);
     }, i * SYMBOL_STAGGER_MS);
+});
+
+// ── Graceful shutdown — flush journal before exit ─────────────────────────────
+process.on('SIGTERM', async () => {
+    console.log('[Server] SIGTERM received — flushing journal and shutting down');
+    await journal.close();
+    process.exit(0);
+});
+process.on('SIGINT', async () => {
+    console.log('[Server] SIGINT received — flushing journal and shutting down');
+    await journal.close();
+    process.exit(0);
 });

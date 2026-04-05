@@ -38,13 +38,19 @@ export const MacroBiasEngine: Engine<MacroBiasInput, MacroBias> = {
             return { type: 'VALIDATION', message: 'etfFlows must be a finite number', recoverable: false };
         }
 
-        // Normalize each indicator to [0,1] using fixed ranges
-        const normDxy = normalize(dxy, 80, 120);
-        const normVix = normalize(vix, 10, 80);
-        const normSpx = normalize(spx, 3000, 6000);
-        const normGold = normalize(gold, 1500, 3000);
+        // Normalize each indicator to [0,1] using 2026-calibrated ranges
+        // Higher DXY = stronger dollar = bearish crypto (inverted: high DXY → low score)
+        const normDxy = 1 - normalize(dxy, 95, 115);
+        // Higher VIX = more fear = bearish (inverted)
+        const normVix = 1 - normalize(vix, 10, 60);
+        // Higher SPX = risk-on = bullish crypto
+        const normSpx = normalize(spx, 4500, 7000);
+        // Higher Gold = safe-haven demand = mixed (slight bearish for risk assets)
+        const normGold = 1 - normalize(gold, 2500, 5500);
         const normSentiment = normalize(sentiment, 0, 1);
-        const normFundingRate = normalize(input.fundingRate, -0.001, 0.001);
+        // Funding rate: positive = longs paying = bullish, negative = shorts paying = bearish
+        // Kraken funding rate is in percent per 8h, range ±1%
+        const normFundingRate = normalize(input.fundingRate, -1.0, 1.0);
         const normEtfFlows = normalize(input.etfFlows, -1e9, 1e9);
 
         // Weighted sum

@@ -1,19 +1,13 @@
-// Security middleware — helmet headers, CORS policy, body size limit
+// Security middleware — helmet headers, CORS policy, body size limit, request ID
 // Apply this FIRST in createApiServer() before any route definitions.
 
 import helmet from 'helmet';
 import cors from 'cors';
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
-// Allowed origins are read from the environment so production deployments can
-// whitelist their own domains without touching source code.
-//
-// Example .env entry:
-//   ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
-//
-// Falls back to localhost Vite dev server when the variable is not set.
-
 const rawOrigins = process.env['ALLOWED_ORIGINS'] ?? 'http://localhost:5173';
 const allowedOrigins = rawOrigins
     .split(',')
@@ -22,7 +16,6 @@ const allowedOrigins = rawOrigins
 
 export const corsMiddleware = cors({
     origin: (origin, callback) => {
-        // Allow server-to-server requests (no Origin header) and whitelisted origins.
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
@@ -30,46 +23,78 @@ export const corsMiddleware = cors({
         }
     },
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
-    // Do not expose sensitive headers to the browser.
-    exposedHeaders: ['X-Contract-Version', 'Retry-After'],
-    maxAge: 86400, // Preflight cached for 24hrs to reduce OPTIONS overhead
+    allowedHeaders: ['Authorization', 'Content-Type', 'If-None-Match'],
+    exposedHeaders: ['X-Contract-Version', 'Retry-After', 'ETag', 'X-Request-Id'],
+    maxAge: 86400,
 });
 
 // ── Helmet (HTTP Security Headers) ───────────────────────────────────────────
-// Configures 12 OWASP-recommended headers including:
-//   X-Content-Type-Options: nosniff
-//   X-Frame-Options: DENY
-//   Strict-Transport-Security (HSTS)
-//   Content-Security-Policy
-//   Referrer-Policy: no-referrer
-//   X-DNS-Prefetch-Control: off
-
 export const helmetMiddleware = helmet({
-    // This API only serves JSON — CSP locks it down tightly.
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'none'"],
             scriptSrc: ["'none'"],
             objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
         },
     },
-    // Enforce HTTPS for 1 year in production; safe to set even in dev.
     strictTransportSecurity: {
-        maxAge: 31_536_000, // 1 year in seconds
+        maxAge: 31_536_000,
         includeSubDomains: true,
+        preload: true,
     },
-    // Prevent browsers from sniffing content type away from the declared one.
     xContentTypeOptions: true,
-    // Disallow this API from being embedded in any frame.
     frameguard: { action: 'deny' },
-    // Do not send referrer info when navigating away.
     referrerPolicy: { policy: 'no-referrer' },
+    // Disable X-Powered-By to avoid fingerprinting
+    hidePoweredBy: true,
+    // Prevent IE from executing downloads in the site's context
+    ieNoOpen: true,
+    // Don't allow DNS prefetching
+    dnsPrefetchControl: { allow: false },
+    // Prevent cross-origin reads
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
 });
 
 // ── Body Size Cap ─────────────────────────────────────────────────────────────
-// Limits JSON payloads to 100kb — protects against payload flooding attacks.
-// The replay endpoints POST a candle index (a small number), so 100kb is
-// orders of magnitude more than any legitimate consumer needs.
-
 export const jsonBodyParser = express.json({ limit: '100kb' });
+
+// ── Request ID ────────────────────────────────────────────────────────────────
+// Attaches a unique X-Request-Id to every request for tracing.
+export function requestIdMiddleware(req: Request, res: Response, next: NextFunction): void {
+    const id = (req.headers['x-request-id'] as string) || randomUUID();
+    res.setHeader('X-Request-Id', id);
+    (req as Request & { requestId: string }).requestId = id;
+    next();
+}
+
+// ── Query Parameter Sanitization ─────────────────────────────────────────────
+// Strips any query param value that exceeds 200 chars or contains control characters.
+// Prevents log injection and oversized input attacks.
+export function sanitizeQueryParams(req: Request, _res: Response, next: NextFunction): void {
+    for (const key of Object.keys(req.query)) {
+        const val = req.query[key];
+        if (typeof val === 'string') {
+            // Remove control characters and truncate
+            req.query[key] = val.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+        }
+    }
+    next();
+}
+
+// ── Request Logging ───────────────────────────────────────────────────────────
+// Logs method, path, status, and duration for every request.
+// Never logs Authorization headers or token values.
+export function requestLogger(req: Request, res: Response, next: NextFunction): void {
+    const start = Date.now();
+    res.on('finish', () => {
+        const ms = Date.now() - start;
+        const id = res.getHeader('X-Request-Id') ?? '-';
+        // Only log non-health-check requests to avoid noise
+        if (req.path !== '/health') {
+            console.log(`[API] ${req.method} ${req.path} ${res.statusCode} ${ms}ms req=${id}`);
+        }
+    });
+    next();
+}

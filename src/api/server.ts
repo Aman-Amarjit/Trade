@@ -4,7 +4,7 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import { bearerAuth } from './auth.js';
-import { helmetMiddleware, corsMiddleware, jsonBodyParser } from './security.js';
+import { helmetMiddleware, corsMiddleware, jsonBodyParser, requestIdMiddleware, sanitizeQueryParams, requestLogger } from './security.js';
 import { Contract_Version } from '../../shared/types/index.js';
 import type { PipelineResult, LiveAnalysisResponse } from '../../shared/types/index.js';
 import type { Journal, JournalQueryParams } from '../journal/Journal.js';
@@ -12,8 +12,18 @@ import type { Journal, JournalQueryParams } from '../journal/Journal.js';
 // ── Rate limiter (per-client, token bucket) ──────────────────────────────────
 
 const clientBuckets = new Map<string, { tokens: number; lastRefill: number }>();
-const RATE_LIMIT_CAPACITY = 60;
-const RATE_LIMIT_REFILL_PER_MS = 60 / 60000; // 60 req/min
+// Rate limit: 120 req/min — frontend with 3 symbols + dashboard polls ~90 req/min
+const RATE_LIMIT_CAPACITY = parseInt(process.env['RATE_LIMIT_RPM'] ?? '120', 10);
+const RATE_LIMIT_REFILL_PER_MS = RATE_LIMIT_CAPACITY / 60000;
+
+// Prune stale buckets every 5 minutes to prevent unbounded memory growth
+// (a DDoS with many unique IPs would otherwise fill the Map indefinitely)
+setInterval(() => {
+    const staleThreshold = Date.now() - 5 * 60 * 1000;
+    for (const [ip, bucket] of clientBuckets) {
+        if (bucket.lastRefill < staleThreshold) clientBuckets.delete(ip);
+    }
+}, 5 * 60 * 1000).unref();
 
 function checkRateLimit(clientId: string): boolean {
     const now = Date.now();
@@ -78,9 +88,12 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
     const app = express();
 
     // ── Security middleware (must be first) ──────────────────────────────────
-    app.use(helmetMiddleware);     // OWASP security headers
-    app.use(corsMiddleware);       // Origin whitelist (ALLOWED_ORIGINS env var)
-    app.use(jsonBodyParser);       // Hardened JSON parser — 100kb body size cap
+    app.use(helmetMiddleware);
+    app.use(corsMiddleware);
+    app.use(jsonBodyParser);
+    app.use(requestIdMiddleware);
+    app.use(sanitizeQueryParams);
+    app.use(requestLogger);
 
     // Attach Contract-Version header to all responses
     app.use((_req, res, next) => {
@@ -109,11 +122,35 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
             return;
         }
 
+        // Validate symbol format — only allow alphanumeric, dash, underscore (max 20 chars)
+        if (!/^[A-Z0-9_-]{1,20}$/i.test(symbol)) {
+            res.status(400).json({ error: 'Invalid symbol format' });
+            return;
+        }
+
+        // The backend runs a single configured timeframe. Return 400 if the requested
+        // timeframe doesn't match — prevents silently returning data with a wrong label.
+        const configuredTimeframe = process.env['TIMEFRAME'] ?? '1m';
+        if (timeframe !== configuredTimeframe) {
+            res.status(400).json({
+                error: `Timeframe mismatch: backend is configured for '${configuredTimeframe}', requested '${timeframe}'. Update TIMEFRAME env var to change the pipeline timeframe.`,
+            });
+            return;
+        }
+
         const result = opts.getLatestResult(symbol, timeframe);
         if (!result) {
             res.status(503).json({ error: 'No pipeline result available yet' });
             return;
         }
+
+        // ETag based on bundleSeq — allows clients to skip redundant processing via 304
+        const etag = `"${result.bundleSeq}"`;
+        if (req.headers['if-none-match'] === etag) {
+            res.status(304).end();
+            return;
+        }
+        res.setHeader('ETag', etag);
 
         const response: LiveAnalysisResponse = {
             symbol,
@@ -124,6 +161,7 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
             liquidity: result.structure.liquidityMap,
             geometry: result.geometry.geometry,
             microstructure: result.geometry.microstructure,
+            scoring: result.decision.scoring,
             timestamp: result.timestamp,
             degraded: result.degraded,
             failedEngines: result.failedEngines,
@@ -135,7 +173,8 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
     // ── GET /api/v1/analysis/dashboard — Requirements: 19.5
     app.get('/api/v1/analysis/dashboard', (req, res) => {
         const symbolsParam = (req.query['symbols'] as string) ?? '';
-        const symbols = symbolsParam.split(',').map(s => s.trim()).filter(Boolean);
+        // Cap at 20 symbols to prevent DoS via large symbol lists
+        const symbols = symbolsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20);
 
         const all = opts.getAllLatestResults();
         const summaries = symbols.map(sym => {
@@ -184,12 +223,25 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
 
     // ── GET /api/v1/diagnostics/journal — Requirements: 19.12, 17.8
     app.get('/api/v1/diagnostics/journal', async (req, res) => {
+        const rawPage = req.query['page'] ? parseInt(req.query['page'] as string, 10) : undefined;
+        const rawPageSize = req.query['pageSize'] ? parseInt(req.query['pageSize'] as string, 10) : undefined;
+
+        // Validate pagination params — reject NaN and out-of-range values
+        if (rawPage !== undefined && (isNaN(rawPage) || rawPage < 1)) {
+            res.status(400).json({ error: 'page must be a positive integer' });
+            return;
+        }
+        if (rawPageSize !== undefined && (isNaN(rawPageSize) || rawPageSize < 1 || rawPageSize > 500)) {
+            res.status(400).json({ error: 'pageSize must be between 1 and 500' });
+            return;
+        }
+
         const params: JournalQueryParams = {
             engine: req.query['engine'] as string | undefined,
             from: req.query['from'] as string | undefined,
             to: req.query['to'] as string | undefined,
-            page: req.query['page'] ? parseInt(req.query['page'] as string, 10) : undefined,
-            pageSize: req.query['pageSize'] ? parseInt(req.query['pageSize'] as string, 10) : undefined,
+            page: rawPage,
+            pageSize: rawPageSize,
         };
 
         try {
@@ -238,8 +290,8 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
             return;
         }
         const { candleIndex } = req.body as { candleIndex?: number };
-        if (typeof candleIndex !== 'number') {
-            res.status(400).json({ error: 'candleIndex must be a number' });
+        if (typeof candleIndex !== 'number' || !isFinite(candleIndex) || candleIndex < 0 || candleIndex > 1_000_000) {
+            res.status(400).json({ error: 'candleIndex must be a non-negative finite number (max 1,000,000)' });
             return;
         }
         const result = await opts.seekReplay(candleIndex);

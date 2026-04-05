@@ -29,12 +29,14 @@ export function PredictionGraph(): React.ReactElement {
     return (
         <div className="panel prediction-graph" role="region" aria-label="Prediction Graph">
             <div className="panel-title">Prediction</div>
-
+            {/* StrictLine is a 0–1 alignment score: 0 = fully bearish/unstable, 1 = fully bullish/stable.
+                It is NOT a price, probability, or percent change. It is a weighted composite of
+                geometry, liquidity, volatility, microstructure, orderflow, and macro signals. */}
             <PredictionChart />
 
             <div className="stat-grid">
                 <div className="stat-card">
-                    <span className="stat-label">Strict Line</span>
+                    <span className="stat-label">Alignment Score (0–1)</span>
                     <span className="stat-value accent">{pct(strictLine)}</span>
                 </div>
                 <div className="stat-card">
@@ -57,10 +59,10 @@ export function PredictionGraph(): React.ReactElement {
                 <span className="value">{pct(min)} – {pct(max)}</span>
             </div>
 
-            <div className="section-label">Confidence Bands</div>
+            <div className="section-label">Volatility Envelopes</div>
             <div className="band-list">
                 <div className="band-item">
-                    <span className="band-pct">95%</span>
+                    <span className="band-pct">Wide</span>
                     <div className="band-bar-track">
                         <div className="band-bar-fill band-95-fill"
                             style={{ marginLeft: `${band95[0] * 100}%`, width: `${Math.max(0, band95[1] - band95[0]) * 100}%` }} />
@@ -68,7 +70,7 @@ export function PredictionGraph(): React.ReactElement {
                     <span className="band-val">{pct(band95[0])} – {pct(band95[1])}</span>
                 </div>
                 <div className="band-item">
-                    <span className="band-pct">80%</span>
+                    <span className="band-pct">Mid</span>
                     <div className="band-bar-track">
                         <div className="band-bar-fill band-80-fill"
                             style={{ marginLeft: `${band80[0] * 100}%`, width: `${Math.max(0, band80[1] - band80[0]) * 100}%` }} />
@@ -76,7 +78,7 @@ export function PredictionGraph(): React.ReactElement {
                     <span className="band-val">{pct(band80[0])} – {pct(band80[1])}</span>
                 </div>
                 <div className="band-item">
-                    <span className="band-pct">50%</span>
+                    <span className="band-pct">Narrow</span>
                     <div className="band-bar-track">
                         <div className="band-bar-fill band-50-fill"
                             style={{ marginLeft: `${band50[0] * 100}%`, width: `${Math.max(0, band50[1] - band50[0]) * 100}%` }} />

@@ -238,6 +238,8 @@ export interface LiveAnalysisResponse {
     liquidity: LiquidityMapOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
+    // Scoring output — includes probability (0–100) and per-engine contributions
+    scoring?: ScoringOutput;
     timestamp: string;
     degraded?: boolean;
     failedEngines?: string[];

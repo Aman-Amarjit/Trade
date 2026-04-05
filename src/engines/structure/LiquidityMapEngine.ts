@@ -119,8 +119,12 @@ export const LiquidityMapEngine: Engine<LiquidityMapInput, LiquidityMapOutput> =
             // volumeAtLevel: normalized volume at nearest profile level
             const volumeAtLevel = normalizeVolume(swingPrice, volumeProfile);
 
+            // stopClusterStrength = 0.4×swingCount + 0.4×wickTouches + 0.2×volumeAtLevel
+            // Normalized: swingCount capped at 5, wickTouches capped at 10
+            const normSwingCount = Math.min(swingCount / 5, 1);
+            const normWickTouches = Math.min(wickTouches / 10, 1);
             const stopClusterStrength =
-                swingCount * 0.4 + wickTouches * 0.4 + volumeAtLevel * 0.2;
+                normSwingCount * 0.4 + normWickTouches * 0.4 + volumeAtLevel * 0.2;
 
             zones.push({
                 id: makeZoneId('STOP_CLUSTER', swingPrice),
@@ -150,17 +154,20 @@ export const LiquidityMapEngine: Engine<LiquidityMapInput, LiquidityMapOutput> =
                 type: 'LIQ_SHELF',
                 priceMin: swing.price - tolerance,
                 priceMax: swing.price + tolerance,
-                strength: Math.min(1, risk / maxShelfRisk), // normalized [0,1]
+                // Normalize: tanh compresses to (0,1) regardless of OI units
+                strength: Math.min(1, Math.tanh(risk / (maxShelfRisk + 1))),
             });
         }
 
         // ── Fair Value Gaps (Spec 5.2.3) ──────────────────────────────────────
         for (let i = 0; i < candles.length - 2; i++) {
             const c0 = candles[i];
+            const c1 = candles[i + 1]; // middle candle
             const c2 = candles[i + 2];
 
-            // Bullish FVG: gap between c0.high and c2.low (c0.high < c2.low)
-            if (c0.high < c2.low) {
+            // Bullish FVG: gap between c0.high and c2.low that c1's wicks don't fill
+            // c0.high < c2.low AND c1.low > c0.high (middle candle doesn't fill the gap)
+            if (c0.high < c2.low && c1.low > c0.high) {
                 zones.push({
                     id: makeZoneId('FVG', (c0.high + c2.low) / 2),
                     type: 'FVG',
@@ -171,8 +178,9 @@ export const LiquidityMapEngine: Engine<LiquidityMapInput, LiquidityMapOutput> =
                 });
             }
 
-            // Bearish FVG: gap between c2.high and c0.low (c0.low > c2.high)
-            if (c0.low > c2.high) {
+            // Bearish FVG: gap between c2.high and c0.low that c1's wicks don't fill
+            // c0.low > c2.high AND c1.high < c0.low (middle candle doesn't fill the gap)
+            if (c0.low > c2.high && c1.high < c0.low) {
                 zones.push({
                     id: makeZoneId('FVG', (c0.low + c2.high) / 2),
                     type: 'FVG',
