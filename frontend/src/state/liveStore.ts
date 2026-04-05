@@ -49,6 +49,8 @@ export interface LiveStore {
     addAlert: (alert: Omit<Alert, 'id'>) => void;
     expireAlerts: () => void;
     setReplayMode: (active: boolean) => void;
+    resetHistory: () => void;
+    clearData: () => void;
 }
 
 export const useLiveStore = create<LiveStore>((set, get) => ({
@@ -116,5 +118,21 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     })),
 
     setReplayMode: (active) => set({ isReplayMode: active }),
+
+    resetHistory: () => set({ predictionHistory: [], priceHistory: [] }),
+
+    clearData: () => set({
+        prediction: null,
+        risk: null,
+        state: null,
+        liquidity: null,
+        geometry: null,
+        microstructure: null,
+        predictionHistory: [],
+        priceHistory: [],
+        lastUpdated: null,
+        isStale: false,
+        consecutiveFailures: 0,
+    }),
 }));
 

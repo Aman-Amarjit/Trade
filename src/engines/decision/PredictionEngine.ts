@@ -70,35 +70,37 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         const rawStrictLine = w1 * G + w2 * L + w3 * V + w4 * M + w5 * O + w6 * X;
 
         // Formula 12/30 — LiquidityBias
-        // attractorStrength is pre-normalized [0,1], distanceToPrice is in ATR units
-        // Result is bounded: tanh(strength) / (atrDistance + epsilon) → clamped to [0,1]
         const liquidityBias = Math.min(1, attractorStrength / (distanceToPrice + 0.1));
 
-        // Formula 13/31 — Confidence bands
-        // atrNorm = ATR as fraction of current price (e.g. $6 ATR / $67000 = 0.00009)
-        // Scale up to a meaningful [0.01, 0.15] range for the [0,1] prediction space
-        const atrNorm = Math.min(Math.max(atr / (distanceToPrice * 10000 + atr), 0.02), 0.12);
-        const band50: [number, number] = [
-            Math.max(0, rawStrictLine - atrNorm * 0.5),
-            Math.min(1, rawStrictLine + atrNorm * 0.5),
-        ];
-        const band80: [number, number] = [
-            Math.max(0, rawStrictLine - atrNorm * 1.0),
-            Math.min(1, rawStrictLine + atrNorm * 1.0),
-        ];
-        const band95: [number, number] = [
-            Math.max(0, rawStrictLine - atrNorm * 1.5),
-            Math.min(1, rawStrictLine + atrNorm * 1.5),
-        ];
+        // atrNorm — ATR as fraction of price, scaled to prediction space [0,1]
+        // PDF Formula 13: Band_k = StrictLine ± (ATR × k)
+        // Since StrictLine is [0,1] and ATR is in USD, we normalize:
+        // atrNorm = ATR / (ATR + distanceToPrice × 1000) clamped to [0.02, 0.12]
+        // This gives meaningful band width proportional to volatility
+        const atrNorm = Math.min(Math.max(atr / (atr + distanceToPrice * 1000), 0.02), 0.12);
 
-        // Formula 14/32 — MinMax zone (normalized)
-        const Vf = Math.max(1.0, Math.min(2.5, volatilityFactor));
-        const min = Math.max(0, rawStrictLine - Vf * atrNorm);
-        const max = Math.min(1, rawStrictLine + Vf * atrNorm);
-
-        // Session adjustment (Spec 7.10) — applied before smoothing so all outputs are consistent
+        // Session adjustment (Spec 7.10) — applied first so all outputs are consistent
         const sessionFactor = SESSION_FACTORS[sessionType] ?? 1.0;
         const strictLine = rawStrictLine * sessionFactor;
+
+        // Formula 14/32 — MinMax zone — centered on session-adjusted strictLine
+        const Vf = Math.max(1.0, Math.min(2.5, volatilityFactor));
+        const min = Math.max(0, strictLine - Vf * atrNorm);
+        const max = Math.min(1, strictLine + Vf * atrNorm);
+
+        // Confidence bands — centered on session-adjusted strictLine
+        const band50: [number, number] = [
+            Math.max(0, strictLine - atrNorm * 0.5),
+            Math.min(1, strictLine + atrNorm * 0.5),
+        ];
+        const band80: [number, number] = [
+            Math.max(0, strictLine - atrNorm * 1.0),
+            Math.min(1, strictLine + atrNorm * 1.0),
+        ];
+        const band95: [number, number] = [
+            Math.max(0, strictLine - atrNorm * 1.5),
+            Math.min(1, strictLine + atrNorm * 1.5),
+        ];
 
         // Formula 15/33 — Temporal smoothing (on session-adjusted value)
         const alpha = regimePersistence === 'HIGH_PERSISTENCE' ? 0.4

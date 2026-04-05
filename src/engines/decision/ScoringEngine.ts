@@ -19,6 +19,8 @@ export interface ScoringInput {
     volatilityRegime: VolatilityRegime;
     macroBias: MacroBias;
     sessionType: SessionType;
+    // Section 5.1.9 — microState from GeometryClassifier feeds into scoring
+    microState?: string | null;
 }
 
 export const ScoringEngine: Engine<ScoringInput, ScoringOutput> = {
@@ -30,7 +32,7 @@ export const ScoringEngine: Engine<ScoringInput, ScoringOutput> = {
             return { type: 'VALIDATION', message: 'Input is null or undefined', recoverable: false };
         }
 
-        const { geometry, liquidityMap, microstructure, orderflow, volatilityRegime, macroBias, sessionType } = input;
+        const { geometry, liquidityMap, microstructure, orderflow, volatilityRegime, macroBias, sessionType, microState } = input;
 
         if (geometry == null) {
             return { type: 'VALIDATION', message: 'geometry is required', recoverable: false };
@@ -47,7 +49,16 @@ export const ScoringEngine: Engine<ScoringInput, ScoringOutput> = {
 
         const liquidityScore = Math.min(100, liquidityMap.zones.length * 10);
 
-        const microstructureScore = microstructure.alignmentScore * 100;
+        // Section 5.1.9 — microState adjusts microstructure score
+        // stable micro-states boost score, chaotic ones reduce it
+        const microStateBonus = (() => {
+            if (!microState) return 0;
+            const stability = microState.split('-')[1] ?? '';
+            if (stability === 'stable') return 5;
+            if (stability === 'chaotic') return -10;
+            return 0; // unstable
+        })();
+        const microstructureScore = Math.max(0, Math.min(100, microstructure.alignmentScore * 100 + microStateBonus));
 
         const orderflowScore = ((orderflow.bidAskPressure + 1) / 2) * 100;
 

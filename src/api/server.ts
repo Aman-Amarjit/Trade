@@ -141,6 +141,19 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
         const summaries = symbols.map(sym => {
             const result = all.get(sym);
             if (!result) return { symbol: sym, available: false };
+
+            // expectedMove = EDD (ATR × volatilityFactor) — per-asset expected adverse move
+            const edd = result.decision.risk.edd;
+            // timeWindow: session-based expected duration (Section 9.9)
+            const sessionTimeWindows: Record<string, string> = {
+                ASIA: '0–8h UTC',
+                LONDON: '8–13h UTC',
+                NEWYORK: '13–21h UTC',
+                POSTNY: '21–24h UTC',
+                WEEKEND: 'Weekend',
+            };
+            const timeWindow = sessionTimeWindows[result.context.sessionType] ?? 'Unknown';
+
             return {
                 symbol: sym,
                 available: true,
@@ -148,6 +161,8 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
                 volatilityRegime: result.context.volatilityRegime,
                 globalStress: result.context.globalStress,
                 state: result.decision.state.state,
+                expectedMove: edd,
+                timeWindow,
                 degraded: result.degraded,
                 timestamp: result.timestamp,
             };
@@ -185,14 +200,26 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
         }
     });
 
+    // ── POST /api/v1/replay/activate — toggle replay mode on/off
+    app.post('/api/v1/replay/activate', (req, res) => {
+        const { active } = req.body as { active?: boolean };
+        if (typeof active !== 'boolean') {
+            res.status(400).json({ error: 'active must be a boolean' });
+            return;
+        }
+        replayMode = active;
+        replayCandleIndex = 0;
+        res.json({ replayMode, message: active ? 'Replay mode activated' : 'Replay mode deactivated' });
+    });
+
     // ── POST /api/v1/replay/step — Requirements: 30.3, 30.6
     app.post('/api/v1/replay/step', async (_req, res) => {
         if (!replayMode) {
-            res.status(400).json({ error: 'Replay mode is not active' });
+            res.status(400).json({ error: 'Replay mode is not active. POST /api/v1/replay/activate with { "active": true } first.' });
             return;
         }
         if (!opts.stepReplay) {
-            res.status(501).json({ error: 'Replay not configured' });
+            res.status(501).json({ error: 'Replay not configured — no CSV file provided to the server' });
             return;
         }
         const result = await opts.stepReplay();
@@ -203,11 +230,11 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
     // ── POST /api/v1/replay/seek — Requirements: 30.3, 30.6
     app.post('/api/v1/replay/seek', async (req, res) => {
         if (!replayMode) {
-            res.status(400).json({ error: 'Replay mode is not active' });
+            res.status(400).json({ error: 'Replay mode is not active. POST /api/v1/replay/activate with { "active": true } first.' });
             return;
         }
         if (!opts.seekReplay) {
-            res.status(501).json({ error: 'Replay not configured' });
+            res.status(501).json({ error: 'Replay not configured — no CSV file provided to the server' });
             return;
         }
         const { candleIndex } = req.body as { candleIndex?: number };

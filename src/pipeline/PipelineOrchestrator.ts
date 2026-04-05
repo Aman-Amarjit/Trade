@@ -43,19 +43,14 @@ import { PredictionEngine } from '../engines/decision/PredictionEngine.js';
 import { ScoringEngine } from '../engines/decision/ScoringEngine.js';
 import { RiskManager } from '../engines/decision/RiskManager.js';
 import { StateMachine } from '../engines/decision/StateMachine.js';
+import { EngineCache } from '../data/cache.js';
 
 // ── Default outputs for failed engines ──────────────────────────────────────
 
 const DEFAULT_STRESS: StressState = 'CAUTION';
-const DEFAULT_MACRO_BIAS: MacroBias = 'NEUTRAL';
 const DEFAULT_REGIME_PERSISTENCE: RegimePersistence = 'LOW_PERSISTENCE';
 const DEFAULT_VOLATILITY_REGIME: VolatilityRegime = 'NORMAL';
 const DEFAULT_SESSION_TYPE: SessionType = 'ASIA';
-const DEFAULT_SECTOR_ROTATION: SectorRotation = 'RISK-OFF';
-const DEFAULT_ASSET_PROFILE: AssetProfile = {
-    sensitivityProfile: 0.5, volatilityProfile: 0.5,
-    liquidityProfile: 0.5, macroResponsiveness: 0.5,
-};
 const DEFAULT_MARKET_STRUCTURE: MarketStructureOutput = {
     internalSwings: [], externalSwings: [], trend: 'RANGE',
     premiumZone: [0, 0], discountZone: [0, 0], structureBounds: [0, 0],
@@ -105,14 +100,45 @@ export class PipelineOrchestrator {
     private readonly stateMachine = new StateMachine();
     private consecutiveSlowCycles = 0;
     private readonly SLOW_CYCLE_THRESHOLD_MS = 300;
+    // Section 10.7 — cache per candle, per session, per asset
+    private readonly cache = new EngineCache();
 
     // Store stop clusters from previous cycle for GlobalStressEngine bootstrap
     private prevStopClusters: Array<{ id: string; priceMin: number; priceMax: number; strength: number }> = [];
+
+    // Persist smoothed prediction across cycles for temporal smoothing (Formula 15)
+    private prevSmoothed: number = 0.5;
+    private signalAge: number = 0;
+    // Smooth the microstructure alignment score to prevent M input from spiking
+    private smoothedAlignment: number = 0.5;
+    // Smooth structurePressure (G) to prevent sawtooth from swing detection changes
+    private smoothedStructurePressure: number = 0.5;
+    // Smooth bid/ask pressure (O) to prevent orderflow noise from spiking
+    private smoothedBidAskPressure: number = 0.5;
+    // Smooth atrPercentile (V) to prevent volatility noise from spiking
+    private smoothedAtrPercentile: number = 0.5;
+
+    // ── Differential update frequency (Section 3.5) ──────────────────────────
+    // Low-frequency engines: MacroBias, GlobalStress, SectorRotation, AssetProfile
+    // These run every ~5 minutes (150 cycles at 2s each), not every candle
+    private readonly LOW_FREQ_INTERVAL = 150;
+    private cycleCount = 0;
+    private cachedMacroBias: MacroBias = 'NEUTRAL';
+    private cachedSectorRotation: SectorRotation = 'RISK-OFF';
+    private cachedAssetProfile: AssetProfile = {
+        sensitivityProfile: 0.5, volatilityProfile: 0.5,
+        liquidityProfile: 0.5, macroResponsiveness: 0.5,
+    };
 
     async run(bundle: UnifiedDataBundle, candleWindow?: Array<{ high: number; low: number; open: number; close: number; timestamp: string }>): Promise<PipelineResult> {
         const start = Date.now();
         const failedEngines: string[] = [];
         let degraded = false;
+        this.cycleCount++;
+        const isLowFreqCycle = this.cycleCount % this.LOW_FREQ_INTERVAL === 1;
+
+        // Section 10.7 — invalidate per-candle cache entries on each new cycle
+        this.cache.invalidatePerCandleEngines();
 
         function fail(name: string, err: EngineError): void {
             degraded = true;
@@ -142,15 +168,20 @@ export class PipelineOrchestrator {
             ? (fail('GlobalStressEngine', stressResult), DEFAULT_STRESS)
             : stressResult;
 
-        // MacroBiasEngine
-        const macroResult = MacroBiasEngine.execute({
-            macro: bundle.macro,
-            fundingRate: bundle.macro.fundingRate,
-            etfFlows: bundle.macro.etfFlows,
-        });
-        const macroBias: MacroBias = isEngineError(macroResult)
-            ? (fail('MacroBiasEngine', macroResult), DEFAULT_MACRO_BIAS)
-            : macroResult;
+        // MacroBiasEngine — low frequency (every ~5 minutes)
+        if (isLowFreqCycle) {
+            const macroResult = MacroBiasEngine.execute({
+                macro: bundle.macro,
+                fundingRate: bundle.macro.fundingRate,
+                etfFlows: bundle.macro.etfFlows,
+            });
+            if (!isEngineError(macroResult)) {
+                this.cachedMacroBias = macroResult;
+            } else {
+                fail('MacroBiasEngine', macroResult);
+            }
+        }
+        const macroBias: MacroBias = this.cachedMacroBias;
 
         // TimeSessionEngine
         const sessionResult = TimeSessionEngine.execute({ timestamp: bundle.timestamp });
@@ -169,15 +200,20 @@ export class PipelineOrchestrator {
             ? (fail('VolatilityRegimeEngine', volResult), DEFAULT_VOLATILITY_REGIME)
             : volResult;
 
-        // SectorRotationEngine
-        const sectorResult = SectorRotationEngine.execute({
-            relativeStrength: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
-            volumeDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
-            volatilityDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
-        });
-        const sectorRotation: SectorRotation = isEngineError(sectorResult)
-            ? (fail('SectorRotationEngine', sectorResult), DEFAULT_SECTOR_ROTATION)
-            : sectorResult;
+        // SectorRotationEngine — low frequency (every ~5 minutes)
+        if (isLowFreqCycle) {
+            const sectorResult = SectorRotationEngine.execute({
+                relativeStrength: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+                volumeDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+                volatilityDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+            });
+            if (!isEngineError(sectorResult)) {
+                this.cachedSectorRotation = sectorResult;
+            } else {
+                fail('SectorRotationEngine', sectorResult);
+            }
+        }
+        const sectorRotation: SectorRotation = this.cachedSectorRotation;
 
         // RegimePersistenceEngine
         const regimeResult = RegimePersistenceEngine.execute({
@@ -190,16 +226,21 @@ export class PipelineOrchestrator {
             ? (fail('RegimePersistenceEngine', regimeResult), DEFAULT_REGIME_PERSISTENCE)
             : regimeResult;
 
-        // AssetProfileEngine
-        const assetResult = AssetProfileEngine.execute({
-            historicalVolatility: bundle.volatility.atrPercentile,
-            liquidityDepth: 0.5,
-            macroCorrelation: 0.5,
-            sectorRotation,
-        });
-        const assetProfile: AssetProfile = isEngineError(assetResult)
-            ? (fail('AssetProfileEngine', assetResult), DEFAULT_ASSET_PROFILE)
-            : assetResult;
+        // AssetProfileEngine — low frequency (every ~5 minutes)
+        if (isLowFreqCycle) {
+            const assetResult = AssetProfileEngine.execute({
+                historicalVolatility: bundle.volatility.atrPercentile,
+                liquidityDepth: 0.5,
+                macroCorrelation: 0.5,
+                sectorRotation,
+            });
+            if (!isEngineError(assetResult)) {
+                this.cachedAssetProfile = assetResult;
+            } else {
+                fail('AssetProfileEngine', assetResult);
+            }
+        }
+        const assetProfile: AssetProfile = this.cachedAssetProfile;
 
         const context: ContextBundle = {
             globalStress, macroBias, regimePersistence,
@@ -291,44 +332,86 @@ export class PipelineOrchestrator {
 
         const geometryBundle: GeometryBundle = { geometry, microstructure, orderflow };
 
+        // Smooth alignment score to prevent M input from spiking each cycle
+        this.smoothedAlignment = 0.2 * microstructure.alignmentScore + 0.8 * this.smoothedAlignment;
+        const stableAlignment = this.smoothedAlignment;
+
+        // Smooth structurePressure to prevent G input from spiking each cycle
+        const rawStructurePressure = geometry.structurePressure ?? 0.5;
+        this.smoothedStructurePressure = 0.3 * rawStructurePressure + 0.7 * this.smoothedStructurePressure;
+        const stableG = Math.max(0, Math.min(1, this.smoothedStructurePressure));
+
+        // Smooth bid/ask pressure to prevent O input from spiking each cycle
+        const rawBidAsk = (orderflow.bidAskPressure + 1) / 2;
+        this.smoothedBidAskPressure = 0.3 * rawBidAsk + 0.7 * this.smoothedBidAskPressure;
+        const stableO = Math.max(0, Math.min(1, this.smoothedBidAskPressure));
+
+        // Smooth atrPercentile to prevent V input from spiking each cycle
+        this.smoothedAtrPercentile = 0.2 * bundle.volatility.atrPercentile + 0.8 * this.smoothedAtrPercentile;
+        const stableV = Math.max(0, Math.min(1, this.smoothedAtrPercentile));
+
         // ── STEP 4: Decision Engines ─────────────────────────────────────────
 
         const predResult = PredictionEngine.execute({
-            G: Math.max(0, Math.min(1, geometry.structurePressure ?? 0.5)),
-            L: Math.max(0, Math.min(1, Math.min(liquidityMap.zones.length / 10, 1))),
-            V: Math.max(0, Math.min(1, bundle.volatility.atrPercentile)),
-            M: Math.max(0, Math.min(1, microstructure.alignmentScore)),
-            O: Math.max(0, Math.min(1, (orderflow.bidAskPressure + 1) / 2)),
+            G: stableG,
+            // Smooth L over time — raw zone count jumps wildly each cycle
+            L: Math.max(0, Math.min(1, Math.min(liquidityMap.zones.length / 20, 1))),
+            V: stableV,
+            // Section 5.1.9 — microState feeds into Prediction Engine
+            // Map microState direction component to M input: up→high, down→low, neutral→alignmentScore
+            M: (() => {
+                const ms = geometry.microState ?? '';
+                const dir = ms.split('-')[0];
+                if (dir === 'up') return Math.max(stableAlignment, 0.6);
+                if (dir === 'down') return Math.min(stableAlignment, 0.4);
+                return Math.max(0, Math.min(1, stableAlignment));
+            })(),
+            O: stableO,
             X: macroBias === 'LONG' ? 0.7 : macroBias === 'SHORT' ? 0.3 : 0.5,
             weights: { w1: 0.15, w2: 0.25, w3: 0.15, w4: 0.20, w5: 0.15, w6: 0.10 },
             atr: bundle.volatility.atr,
             volatilityFactor: 1.0,
-            // Normalize attractorStrength to [0,1] — raw zone strength can be millions (open interest)
-            // Use tanh to compress large values into a bounded range
-            attractorStrength: Math.tanh(
-                (liquidityMap.zones[0]?.strength ?? 0) /
-                Math.max(bundle.volatility.atr * 100, 1)
-            ),
-            // distanceToPrice in ATR units — how many ATRs away is the nearest zone
+            // Section 6.3 — AttractorStrength = clusterStrength × proximityWeight
+            attractorStrength: (() => {
+                if (liquidityMap.zones.length === 0) return 0;
+                const collapseBoost = 1 + (geometry.collapseProb ?? 0) * 0.5;
+                let bestScore = 0;
+                for (const z of liquidityMap.zones) {
+                    const mid = (z.priceMin + z.priceMax) / 2;
+                    const distATR = Math.max(0.1, Math.abs(bundle.price.close - mid) / Math.max(bundle.volatility.atr, 1));
+                    const proximityWeight = 1 / (1 + distATR);
+                    const score = z.strength * proximityWeight * collapseBoost;
+                    if (score > bestScore) bestScore = score;
+                }
+                return Math.min(1, Math.tanh(bestScore));
+            })(),
             distanceToPrice: liquidityMap.zones.length > 0
                 ? Math.max(
                     Math.abs(bundle.price.close - (liquidityMap.zones[0].priceMin + liquidityMap.zones[0].priceMax) / 2) / Math.max(bundle.volatility.atr, 1),
-                    0.1  // minimum 0.1 ATR to prevent division explosion
+                    0.1,
                 )
                 : 1.0,
             regimePersistence,
             sessionType,
             assetVolatilityProfile: assetProfile.volatilityProfile,
-            signalAge: 0,
+            // Pass persisted smoothed value and incrementing signal age for proper smoothing/decay
+            previousSmoothed: this.prevSmoothed,
+            signalAge: this.signalAge,
             decayHalfLife: 30,
         });
         const prediction: PredictionOutput = isEngineError(predResult)
             ? (fail('PredictionEngine', predResult), DEFAULT_PREDICTION())
             : predResult;
 
+        // Persist smoothed value and increment signal age for next cycle
+        this.prevSmoothed = prediction.smoothed;
+        this.signalAge = Math.min(this.signalAge + 1, 60); // cap at 60 cycles
+
         const scoreResult = ScoringEngine.execute({
             geometry, liquidityMap, microstructure, orderflow,
             volatilityRegime, macroBias, sessionType,
+            // Section 5.1.9 — microState feeds into Scoring Engine
+            microState: geometry.microState ?? null,
         });
         const scoring: ScoringOutput = isEngineError(scoreResult)
             ? (fail('ScoringEngine', scoreResult), DEFAULT_SCORING)

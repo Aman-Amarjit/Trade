@@ -184,6 +184,32 @@ export const LiquidityMapEngine: Engine<LiquidityMapInput, LiquidityMapOutput> =
             }
         }
 
+        // ── Imbalance Zones (Spec 6.2.4) ──────────────────────────────────────
+        // Imbalance zones form when candles move too quickly (large body > 1.5× ATR)
+        // with extreme wick asymmetry. Distinct from FVGs per spec Section 6.2.4.
+        if (atr > 0) {
+            for (let i = 1; i < candles.length; i++) {
+                const c = candles[i];
+                const body = Math.abs(c.close - c.open);
+                const range = c.high - c.low;
+                const wickUp = c.high - Math.max(c.open, c.close);
+                const wickDown = Math.min(c.open, c.close) - c.low;
+                const wickAsymmetry = range > 0 ? Math.abs(wickUp - wickDown) / range : 0;
+
+                if (body > atr * 1.5 && wickAsymmetry > 0.6) {
+                    const mid = (c.open + c.close) / 2;
+                    const halfBody = body / 2;
+                    zones.push({
+                        id: makeZoneId('IMBALANCE', mid),
+                        type: 'IMBALANCE',
+                        priceMin: mid - halfBody,
+                        priceMax: mid + halfBody,
+                        strength: Math.min(1, body / (atr * 3)),
+                    });
+                }
+            }
+        }
+
         // ── Resistant Clusters (Formula 10) ───────────────────────────────────
         // Find price levels where multiple zone types overlap within 0.5% range
         const nonClusterZones = zones.filter(z => z.type !== 'RESISTANT_CLUSTER');
@@ -227,8 +253,48 @@ export const LiquidityMapEngine: Engine<LiquidityMapInput, LiquidityMapOutput> =
             }
         }
 
+        // ── Section 6.4 — Structure + Liquidity Integration Rules ────────────────
+        // Apply four integration rules from spec Section 6.4:
+        // 1. Zones inside premium/discount zones get boosted
+        // 2. Zones outside structure boundaries get reduced
+        // 3. Volatility regime scales attractor strength
+        // 4. Geometry collapse probability increases liquidity weighting
+        const premiumLow = marketStructure.premiumZone[0];
+        const premiumHigh = marketStructure.premiumZone[1];
+        const discountLow = marketStructure.discountZone[0];
+        const discountHigh = marketStructure.discountZone[1];
+        const structLow = marketStructure.structureBounds[0];
+        const structHigh = marketStructure.structureBounds[1];
+
+        const volatilityScale =
+            input.volatilityRegime === 'LOW' ? 0.8
+                : input.volatilityRegime === 'NORMAL' ? 1.0
+                    : input.volatilityRegime === 'HIGH' ? 1.2
+                        : 1.5; // EXTREME
+
+        const adjustedZones = zones.map(z => {
+            const mid = (z.priceMin + z.priceMax) / 2;
+            let s = z.strength;
+
+            // Rule 1: boost if inside premium or discount zone
+            const inPremium = mid >= premiumLow && mid <= premiumHigh;
+            const inDiscount = mid >= discountLow && mid <= discountHigh;
+            if (inPremium || inDiscount) s *= 1.2;
+
+            // Rule 2: reduce if outside structure boundaries
+            if (mid < structLow || mid > structHigh) s *= 0.7;
+
+            // Rule 3: scale by volatility regime
+            s *= volatilityScale;
+
+            // Rule 4: geometry collapse probability increases weighting (applied later in orchestrator)
+            // Stored as-is here; orchestrator applies collapse boost to attractor selection
+
+            return { ...z, strength: Math.min(1, s) };
+        });
+
         return {
-            zones,
+            zones: adjustedZones,
             premiumZone: marketStructure.premiumZone,
             discountZone: marketStructure.discountZone,
             structureBounds: marketStructure.structureBounds,

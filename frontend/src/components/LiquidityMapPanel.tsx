@@ -15,11 +15,13 @@ const ZONE_COLORS: Record<string, string> = {
 
 function ZoneRow({ zone }: { zone: LiquidityZone }): React.ReactElement {
     const color = ZONE_COLORS[zone.type] ?? '#718096';
+    // Section 9.5 — attractor strength shown as opacity scaling
+    const opacity = Math.max(0.3, Math.min(1, 0.3 + zone.strength * 0.7));
     return (
-        <div className="zone-row" style={{ borderLeft: `4px solid ${color}` }}>
-            <span className="zone-type">{zone.type}</span>
+        <div className="zone-row" style={{ borderLeft: `4px solid ${color}`, opacity }}>
+            <span className="zone-type" style={{ color }}>{zone.type}</span>
             <span className="zone-range">{zone.priceMin.toFixed(2)} – {zone.priceMax.toFixed(2)}</span>
-            <span className="zone-strength" style={{ opacity: Math.min(1, zone.strength) }}>
+            <span className="zone-strength">
                 str: {zone.strength.toFixed(2)}
             </span>
             {zone.filled !== undefined && (

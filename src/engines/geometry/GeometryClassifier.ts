@@ -77,8 +77,9 @@ export const GeometryClassifier: Engine<GeometryInput, GeometryOutput> = {
         const volumeTerm = totalVolume === 0 ? 0 : 0.5 * Math.abs(askVolume - bidVolume) / totalVolume;
         const imbalance = wickTerm + volumeTerm;
 
-        // Formula 3 — rotation
-        const rotation = (priceSeries[tNext] - priceSeries[t]) / atr;
+        // Formula 3 — rotation: (P(t) - P(t-1)) / ATR  [PDF Section 5.1.3]
+        // Uses current minus previous (backward-looking), not forward-looking
+        const rotation = (priceSeries[t] - priceSeries[tPrev]) / atr;
 
         // Formula 4 — structurePressure
         const structurePressure = 1 / (1 + curvature + Math.abs(imbalance));
