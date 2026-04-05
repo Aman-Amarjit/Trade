@@ -1,0 +1,153 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Snapshot tests — all 15 engines > AssetProfileEngine snapshot 1`] = `
+{
+  "liquidityProfile": 0.7,
+  "macroResponsiveness": 0.5,
+  "sensitivityProfile": 0.6,
+  "volatilityProfile": 0.48,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > GeometryClassifier snapshot 1`] = `
+{
+  "breakoutProb": 0.5621765008857981,
+  "collapseProb": 0.544524604169431,
+  "curvature": 0.75,
+  "geometryRegime": "CHAOTIC_STRUCTURE",
+  "imbalance": 0,
+  "isStable": false,
+  "microState": "down-chaotic",
+  "rotation": -0.25,
+  "rotationPressure": 0.25,
+  "structurePressure": 0.5714285714285714,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > GlobalStressEngine snapshot 1`] = `"SAFE"`;
+
+exports[`Snapshot tests — all 15 engines > LiquidityMapEngine snapshot 1`] = `
+{
+  "discountZone": [
+    49900,
+    50100,
+  ],
+  "premiumZone": [
+    50100,
+    50300,
+  ],
+  "structureBounds": [
+    49900,
+    50300,
+  ],
+  "zones": [],
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > MacroBiasEngine snapshot 1`] = `"NEUTRAL"`;
+
+exports[`Snapshot tests — all 15 engines > MarketStructureContextEngine snapshot 1`] = `
+{
+  "discountZone": [
+    49900,
+    50100,
+  ],
+  "externalSwings": [],
+  "internalSwings": [],
+  "premiumZone": [
+    50100,
+    50300,
+  ],
+  "structureBounds": [
+    49900,
+    50300,
+  ],
+  "trend": "RANGE",
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > MicroStructureEngine snapshot 1`] = `
+{
+  "alignmentScore": 0.16666666666666666,
+  "bosDetected": true,
+  "cvdDivergence": false,
+  "divergence": false,
+  "htfAlignment": false,
+  "retestZone": false,
+  "sweep": false,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > OrderflowEngine snapshot 1`] = `
+{
+  "absorption": false,
+  "bidAskPressure": 0.09090909090909091,
+  "cvd": 50,
+  "delta": 50,
+  "footprintImbalance": 0,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > PredictionEngine snapshot 1`] = `
+{
+  "band50": [
+    0.6200000000000001,
+    0.6400000000000001,
+  ],
+  "band80": [
+    0.6100000000000001,
+    0.6500000000000001,
+  ],
+  "band95": [
+    0.6000000000000001,
+    0.6600000000000001,
+  ],
+  "decayed": 0.6399401840173043,
+  "liquidityBias": 0.004995004995004995,
+  "max": 0.6500000000000001,
+  "min": 0.6100000000000001,
+  "smoothed": 0.756,
+  "strictLine": 0.7560000000000001,
+  "timestamp": "<MASKED>",
+  "volatilityAdjustment": 120,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > RegimePersistenceEngine snapshot 1`] = `"HIGH_PERSISTENCE"`;
+
+exports[`Snapshot tests — all 15 engines > RiskManager snapshot 1`] = `
+{
+  "edd": 200,
+  "ev": 225,
+  "geometryStable": true,
+  "globalStress": "SAFE",
+  "hardReject": false,
+  "microstructureComplete": true,
+  "probability": 85,
+  "rejectReasons": [],
+  "stopDistance": 200,
+  "targetDistance": 300,
+  "volatilityRegime": "NORMAL",
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > ScoringEngine snapshot 1`] = `
+{
+  "contributions": {
+    "geometry": 84,
+    "liquidity": 0,
+    "macro": 70,
+    "microstructure": 50,
+    "orderflow": 54.50000000000001,
+    "session": 80,
+    "volatility": 75,
+  },
+  "probability": 52.925,
+}
+`;
+
+exports[`Snapshot tests — all 15 engines > SectorRotationEngine snapshot 1`] = `"BTC-DOMINANT"`;
+
+exports[`Snapshot tests — all 15 engines > TimeSessionEngine snapshot 1`] = `"NEWYORK"`;
+
+exports[`Snapshot tests — all 15 engines > VolatilityRegimeEngine snapshot 1`] = `"NORMAL"`;

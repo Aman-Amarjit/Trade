@@ -1,0 +1,385 @@
+// PipelineOrchestrator — sequences all 15 engines in mandatory order
+// Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3, 15.4
+
+import type {
+    UnifiedDataBundle,
+    PipelineResult,
+    ContextBundle,
+    StructureBundle,
+    GeometryBundle,
+    DecisionBundle,
+    StressState,
+    MacroBias,
+    RegimePersistence,
+    VolatilityRegime,
+    SessionType,
+    SectorRotation,
+    AssetProfile,
+    MarketStructureOutput,
+    LiquidityMapOutput,
+    GeometryOutput,
+    MicrostructureOutput,
+    OrderflowOutput,
+    PredictionOutput,
+    ScoringOutput,
+    RiskOutput,
+    StateMachineOutput,
+    EngineError,
+} from '../../shared/types/index.js';
+
+import { GlobalStressEngine } from '../engines/context/GlobalStressEngine.js';
+import { MacroBiasEngine } from '../engines/context/MacroBiasEngine.js';
+import { RegimePersistenceEngine } from '../engines/context/RegimePersistenceEngine.js';
+import { VolatilityRegimeEngine } from '../engines/context/VolatilityRegimeEngine.js';
+import { TimeSessionEngine } from '../engines/context/TimeSessionEngine.js';
+import { SectorRotationEngine } from '../engines/context/SectorRotationEngine.js';
+import { AssetProfileEngine } from '../engines/context/AssetProfileEngine.js';
+import { MarketStructureContextEngine } from '../engines/structure/MarketStructureContextEngine.js';
+import { LiquidityMapEngine } from '../engines/structure/LiquidityMapEngine.js';
+import { GeometryClassifier } from '../engines/geometry/GeometryClassifier.js';
+import { MicroStructureEngine } from '../engines/geometry/MicroStructureEngine.js';
+import { OrderflowEngine } from '../engines/geometry/OrderflowEngine.js';
+import { PredictionEngine } from '../engines/decision/PredictionEngine.js';
+import { ScoringEngine } from '../engines/decision/ScoringEngine.js';
+import { RiskManager } from '../engines/decision/RiskManager.js';
+import { StateMachine } from '../engines/decision/StateMachine.js';
+
+// ── Default outputs for failed engines ──────────────────────────────────────
+
+const DEFAULT_STRESS: StressState = 'CAUTION';
+const DEFAULT_MACRO_BIAS: MacroBias = 'NEUTRAL';
+const DEFAULT_REGIME_PERSISTENCE: RegimePersistence = 'LOW_PERSISTENCE';
+const DEFAULT_VOLATILITY_REGIME: VolatilityRegime = 'NORMAL';
+const DEFAULT_SESSION_TYPE: SessionType = 'ASIA';
+const DEFAULT_SECTOR_ROTATION: SectorRotation = 'RISK-OFF';
+const DEFAULT_ASSET_PROFILE: AssetProfile = {
+    sensitivityProfile: 0.5, volatilityProfile: 0.5,
+    liquidityProfile: 0.5, macroResponsiveness: 0.5,
+};
+const DEFAULT_MARKET_STRUCTURE: MarketStructureOutput = {
+    internalSwings: [], externalSwings: [], trend: 'RANGE',
+    premiumZone: [0, 0], discountZone: [0, 0], structureBounds: [0, 0],
+};
+const DEFAULT_LIQUIDITY_MAP: LiquidityMapOutput = {
+    zones: [], premiumZone: [0, 0], discountZone: [0, 0], structureBounds: [0, 0],
+};
+const DEFAULT_GEOMETRY: GeometryOutput = {
+    curvature: null, imbalance: null, rotation: null, structurePressure: null,
+    rotationPressure: null, collapseProb: null, breakoutProb: null,
+    geometryRegime: null, microState: null, isStable: false,
+};
+const DEFAULT_MICROSTRUCTURE: MicrostructureOutput = {
+    sweep: false, divergence: false, cvdDivergence: false,
+    bosDetected: false, retestZone: false, htfAlignment: false, alignmentScore: 0,
+};
+const DEFAULT_ORDERFLOW: OrderflowOutput = {
+    delta: 0, cvd: 0, absorption: false, footprintImbalance: 0, bidAskPressure: 0,
+};
+const DEFAULT_PREDICTION = (): PredictionOutput => ({
+    strictLine: 0.5, min: 0, max: 1,
+    band50: [0.25, 0.75], band80: [0.1, 0.9], band95: [0.05, 0.95],
+    liquidityBias: 0, volatilityAdjustment: 0, smoothed: 0.5, decayed: 0.5,
+    timestamp: new Date().toISOString(),
+});
+const DEFAULT_SCORING: ScoringOutput = { probability: 0, contributions: {} };
+const DEFAULT_RISK = (): RiskOutput => ({
+    edd: 0, stopDistance: 0, targetDistance: 0, ev: 0, probability: 0,
+    volatilityRegime: 'NORMAL', globalStress: 'CAUTION',
+    geometryStable: false, microstructureComplete: false,
+    hardReject: true, rejectReasons: ['Pipeline degraded'],
+});
+const DEFAULT_STATE = (): StateMachineOutput => ({
+    state: 'IDLE', previousState: null, timestamp: new Date().toISOString(),
+    reason: 'Pipeline degraded', cooldownRemaining: 0, alignmentScore: 0,
+});
+
+// ── Helper ───────────────────────────────────────────────────────────────────
+
+function isEngineError(v: unknown): v is EngineError {
+    return typeof v === 'object' && v !== null && 'type' in v && 'message' in v;
+}
+
+// ── PipelineOrchestrator ─────────────────────────────────────────────────────
+
+export class PipelineOrchestrator {
+    private readonly stateMachine = new StateMachine();
+    private consecutiveSlowCycles = 0;
+    private readonly SLOW_CYCLE_THRESHOLD_MS = 300;
+
+    // Store stop clusters from previous cycle for GlobalStressEngine bootstrap
+    private prevStopClusters: Array<{ id: string; priceMin: number; priceMax: number; strength: number }> = [];
+
+    async run(bundle: UnifiedDataBundle, candleWindow?: Array<{ high: number; low: number; open: number; close: number; timestamp: string }>): Promise<PipelineResult> {
+        const start = Date.now();
+        const failedEngines: string[] = [];
+        let degraded = false;
+
+        function fail(name: string, err: EngineError): void {
+            degraded = true;
+            failedEngines.push(name);
+            console.error(`[Pipeline] Engine ${name} failed: [${err.type}] ${err.message}`);
+        }
+
+        // ── STEP 1: Context Engines ──────────────────────────────────────────
+
+        // Clamp bandwidth to [0, 1] — real exchange data can produce values > 1
+        const safeBandwidth = Math.max(0, Math.min(1, bundle.volatility.bandwidth));
+
+        // Derive volatility regime from atrPercentile for GlobalStressEngine input
+        const prelimVolRegime: VolatilityRegime = bundle.volatility.atrPercentile >= 0.85 ? 'EXTREME'
+            : bundle.volatility.atrPercentile >= 0.65 ? 'HIGH'
+                : bundle.volatility.atrPercentile >= 0.35 ? 'NORMAL' : 'LOW';
+
+        // GlobalStressEngine — uses stop clusters from previous cycle (bootstrapped)
+        const stressResult = GlobalStressEngine.execute({
+            volatilityRegime: prelimVolRegime,
+            macro: { vix: bundle.macro.vix, dxy: bundle.macro.dxy },
+            liquidity: { stopClusters: this.prevStopClusters },
+            session: { volatilityPattern: bundle.session.volatilityPattern },
+            structure: { swings: bundle.structure.swings },
+        });
+        const globalStress: StressState = isEngineError(stressResult)
+            ? (fail('GlobalStressEngine', stressResult), DEFAULT_STRESS)
+            : stressResult;
+
+        // MacroBiasEngine
+        const macroResult = MacroBiasEngine.execute({
+            macro: bundle.macro,
+            fundingRate: bundle.macro.fundingRate,
+            etfFlows: bundle.macro.etfFlows,
+        });
+        const macroBias: MacroBias = isEngineError(macroResult)
+            ? (fail('MacroBiasEngine', macroResult), DEFAULT_MACRO_BIAS)
+            : macroResult;
+
+        // TimeSessionEngine
+        const sessionResult = TimeSessionEngine.execute({ timestamp: bundle.timestamp });
+        const sessionType: SessionType = isEngineError(sessionResult)
+            ? (fail('TimeSessionEngine', sessionResult), DEFAULT_SESSION_TYPE)
+            : sessionResult;
+
+        // VolatilityRegimeEngine — clamp bandwidth to [0,1] for real exchange data
+        const volResult = VolatilityRegimeEngine.execute({
+            atr: bundle.volatility.atr,
+            atrPercentile: bundle.volatility.atrPercentile,
+            bandwidth: safeBandwidth,
+            historicalVolatilityPercentile: bundle.volatility.atrPercentile,
+        });
+        const volatilityRegime: VolatilityRegime = isEngineError(volResult)
+            ? (fail('VolatilityRegimeEngine', volResult), DEFAULT_VOLATILITY_REGIME)
+            : volResult;
+
+        // SectorRotationEngine
+        const sectorResult = SectorRotationEngine.execute({
+            relativeStrength: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+            volumeDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+            volatilityDistribution: { btc: 0.5, eth: 0.5, sol: 0.5, meme: 0.5 },
+        });
+        const sectorRotation: SectorRotation = isEngineError(sectorResult)
+            ? (fail('SectorRotationEngine', sectorResult), DEFAULT_SECTOR_ROTATION)
+            : sectorResult;
+
+        // RegimePersistenceEngine
+        const regimeResult = RegimePersistenceEngine.execute({
+            volatilityRegime,
+            macroBias,
+            sessionType,
+            trend: bundle.structure.trend,
+        });
+        const regimePersistence: RegimePersistence = isEngineError(regimeResult)
+            ? (fail('RegimePersistenceEngine', regimeResult), DEFAULT_REGIME_PERSISTENCE)
+            : regimeResult;
+
+        // AssetProfileEngine
+        const assetResult = AssetProfileEngine.execute({
+            historicalVolatility: bundle.volatility.atrPercentile,
+            liquidityDepth: 0.5,
+            macroCorrelation: 0.5,
+            sectorRotation,
+        });
+        const assetProfile: AssetProfile = isEngineError(assetResult)
+            ? (fail('AssetProfileEngine', assetResult), DEFAULT_ASSET_PROFILE)
+            : assetResult;
+
+        const context: ContextBundle = {
+            globalStress, macroBias, regimePersistence,
+            volatilityRegime, sessionType, sectorRotation, assetProfile,
+        };
+
+        // ── STEP 2: Structure Engines ────────────────────────────────────────
+
+        const candle = {
+            high: bundle.price.high, low: bundle.price.low,
+            open: bundle.price.open, close: bundle.price.close,
+            timestamp: bundle.timestamp,
+        };
+
+        // Use provided candle window or fall back to single candle
+        const candles = (candleWindow && candleWindow.length >= 3) ? candleWindow : [candle];
+
+        const msResult = MarketStructureContextEngine.execute({
+            swings: bundle.structure.swings,
+            candles,
+            volatilityRegime,
+        });
+        const marketStructure: MarketStructureOutput = isEngineError(msResult)
+            ? (fail('MarketStructureContextEngine', msResult), DEFAULT_MARKET_STRUCTURE)
+            : msResult;
+
+        const lmResult = LiquidityMapEngine.execute({
+            marketStructure,
+            volumeProfile: [],
+            orderflow: bundle.orderflow,
+            volatilityRegime,
+            candles,
+            openInterest: bundle.liquidity.liqShelves.reduce((sum, s) => sum + s.risk, 0) || 1_000_000,
+            currentPrice: bundle.price.close,
+        });
+        const liquidityMap: LiquidityMapOutput = isEngineError(lmResult)
+            ? (fail('LiquidityMapEngine', lmResult), DEFAULT_LIQUIDITY_MAP)
+            : lmResult;
+
+        // Save stop clusters for next cycle's GlobalStressEngine
+        this.prevStopClusters = liquidityMap.zones
+            .filter(z => z.type === 'STOP_CLUSTER')
+            .map(z => ({ id: z.id, priceMin: z.priceMin, priceMax: z.priceMax, strength: z.strength }));
+
+        const structure: StructureBundle = { marketStructure, liquidityMap };
+
+        // ── STEP 3: Geometry & Micro Engines ────────────────────────────────
+
+        const geoResult = GeometryClassifier.execute({
+            priceSeries: candles.length >= 3 ? candles.map(c => c.close) : [bundle.price.open, bundle.price.close],
+            atr: bundle.volatility.atr,
+            wickUp: bundle.price.high - bundle.price.close,
+            wickDown: bundle.price.close - bundle.price.low,
+            zWicks: bundle.volatility.atr,
+            askVolume: bundle.orderflow.ask,
+            bidVolume: bundle.orderflow.bid,
+        });
+        const geometry: GeometryOutput = isEngineError(geoResult)
+            ? (fail('GeometryClassifier', geoResult), DEFAULT_GEOMETRY)
+            : geoResult;
+
+        const microResult = MicroStructureEngine.execute({
+            candles,
+            orderflow: {
+                bid: bundle.orderflow.bid,
+                ask: bundle.orderflow.ask,
+                delta: bundle.volume.delta,
+                cvd: bundle.volume.cvd,
+            },
+            geometry,
+            liquidityZones: liquidityMap.zones,
+            previousClose: bundle.price.open,
+            htfTrend: bundle.structure.trend,
+        });
+        const microstructure: MicrostructureOutput = isEngineError(microResult)
+            ? (fail('MicroStructureEngine', microResult), DEFAULT_MICROSTRUCTURE)
+            : microResult;
+
+        const ofResult = OrderflowEngine.execute({
+            bid: bundle.orderflow.bid,
+            ask: bundle.orderflow.ask,
+            footprintLevels: [],
+            microstructure,
+            previousCvd: bundle.volume.cvd - bundle.volume.delta,
+        });
+        const orderflow: OrderflowOutput = isEngineError(ofResult)
+            ? (fail('OrderflowEngine', ofResult), DEFAULT_ORDERFLOW)
+            : ofResult;
+
+        const geometryBundle: GeometryBundle = { geometry, microstructure, orderflow };
+
+        // ── STEP 4: Decision Engines ─────────────────────────────────────────
+
+        const predResult = PredictionEngine.execute({
+            G: Math.max(0, Math.min(1, geometry.structurePressure ?? 0.5)),
+            L: Math.max(0, Math.min(1, Math.min(liquidityMap.zones.length / 10, 1))),
+            V: Math.max(0, Math.min(1, bundle.volatility.atrPercentile)),
+            M: Math.max(0, Math.min(1, microstructure.alignmentScore)),
+            O: Math.max(0, Math.min(1, (orderflow.bidAskPressure + 1) / 2)),
+            X: macroBias === 'LONG' ? 0.7 : macroBias === 'SHORT' ? 0.3 : 0.5,
+            weights: { w1: 0.15, w2: 0.25, w3: 0.15, w4: 0.20, w5: 0.15, w6: 0.10 },
+            atr: bundle.volatility.atr,
+            volatilityFactor: 1.0,
+            // Normalize attractorStrength to [0,1] — raw zone strength can be millions (open interest)
+            // Use tanh to compress large values into a bounded range
+            attractorStrength: Math.tanh(
+                (liquidityMap.zones[0]?.strength ?? 0) /
+                Math.max(bundle.volatility.atr * 100, 1)
+            ),
+            // distanceToPrice in ATR units — how many ATRs away is the nearest zone
+            distanceToPrice: liquidityMap.zones.length > 0
+                ? Math.max(
+                    Math.abs(bundle.price.close - (liquidityMap.zones[0].priceMin + liquidityMap.zones[0].priceMax) / 2) / Math.max(bundle.volatility.atr, 1),
+                    0.1  // minimum 0.1 ATR to prevent division explosion
+                )
+                : 1.0,
+            regimePersistence,
+            sessionType,
+            assetVolatilityProfile: assetProfile.volatilityProfile,
+            signalAge: 0,
+            decayHalfLife: 30,
+        });
+        const prediction: PredictionOutput = isEngineError(predResult)
+            ? (fail('PredictionEngine', predResult), DEFAULT_PREDICTION())
+            : predResult;
+
+        const scoreResult = ScoringEngine.execute({
+            geometry, liquidityMap, microstructure, orderflow,
+            volatilityRegime, macroBias, sessionType,
+        });
+        const scoring: ScoringOutput = isEngineError(scoreResult)
+            ? (fail('ScoringEngine', scoreResult), DEFAULT_SCORING)
+            : scoreResult;
+
+        const riskResult = RiskManager.execute({
+            scoring, geometry, microstructure, volatilityRegime, globalStress,
+            atr: bundle.volatility.atr,
+            volatilityFactor: 1.0, stopMultiplier: 1.0,
+            targetMultiplier: 1.5, eddThreshold: bundle.volatility.atr * 2,
+        });
+        const risk: RiskOutput = isEngineError(riskResult)
+            ? (fail('RiskManager', riskResult), DEFAULT_RISK())
+            : riskResult;
+
+        const stateResult = this.stateMachine.execute({
+            microstructure, liquidityMap, geometry, prediction, risk,
+            globalStress, volatilityRegime, dataIntegrityOk: true,
+        });
+        const state: StateMachineOutput = isEngineError(stateResult)
+            ? (fail('StateMachine', stateResult), DEFAULT_STATE())
+            : stateResult;
+
+        const decision: DecisionBundle = { prediction, scoring, risk, state };
+
+        // ── Assemble result ──────────────────────────────────────────────────
+
+        const durationMs = Date.now() - start;
+
+        if (durationMs > this.SLOW_CYCLE_THRESHOLD_MS) {
+            this.consecutiveSlowCycles++;
+            console.warn(`[Pipeline] Slow cycle: ${durationMs}ms (threshold: ${this.SLOW_CYCLE_THRESHOLD_MS}ms)`);
+            if (this.consecutiveSlowCycles >= 3) {
+                console.error(`[Pipeline] ALERT: ${this.consecutiveSlowCycles} consecutive slow cycles`);
+            }
+        } else {
+            this.consecutiveSlowCycles = 0;
+        }
+
+        const result: PipelineResult = {
+            bundleSeq: bundle.seq,
+            context,
+            structure,
+            geometry: geometryBundle,
+            decision,
+            degraded,
+            failedEngines,
+            durationMs,
+            timestamp: new Date().toISOString(),
+        };
+
+        return result;
+    }
+}
