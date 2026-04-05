@@ -13,7 +13,6 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
     const { setLiveData, incrementFailures, addAlert, isReplayMode } = useLiveStore();
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mountedRef = useRef(true);
-
     // Track previous values to detect changes for alerts (Section 9.8)
     const prevVolatilityRegime = useRef<string | null>(null);
     const prevGlobalStress = useRef<string | null>(null);
@@ -44,9 +43,21 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                 });
 
                 if (!res.ok) {
+                    // In replay mode, 501 means no CSV configured — don't spam alerts
+                    if (isReplayMode && res.status === 501) {
+                        // Stop auto-polling in replay mode — user steps manually via ReplayPanel
+                        return;
+                    }
                     incrementFailures();
                 } else {
                     const data = (await res.json()) as LiveAnalysisResponse;
+
+                    // Reject stale responses — if the symbol changed while this request was in flight,
+                    // discard the response so previous asset data never overwrites the new asset
+                    const currentActiveSymbol = useLiveStore.getState().activeSymbol;
+                    if (!isReplayMode && currentActiveSymbol && currentActiveSymbol !== symbol) {
+                        return;
+                    }
                     setLiveData({
                         prediction: data.prediction,
                         risk: data.risk,
@@ -126,7 +137,10 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
             }
 
             if (mountedRef.current) {
-                timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+                // In replay mode, don't auto-poll — user steps manually via ReplayPanel
+                if (!isReplayMode) {
+                    timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+                }
             }
         }
 

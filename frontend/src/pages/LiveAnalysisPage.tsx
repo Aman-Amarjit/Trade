@@ -21,9 +21,17 @@ const TOKEN = import.meta.env.VITE_API_TOKEN ?? '';
 export function LiveAnalysisPage(): React.ReactElement {
     const [activeSymbol, setActiveSymbol] = useState(SYMBOLS[0] ?? 'BTC-USDT');
     const clearData = useLiveStore(s => s.clearData);
+    const setStoreActiveSymbol = useLiveStore(s => s.setActiveSymbol);
+
+    // Set initial active symbol in store on mount
+    React.useEffect(() => {
+        setStoreActiveSymbol(SYMBOLS[0] ?? 'BTC-USDT');
+    }, []);
 
     const handleSelectSymbol = (sym: string) => {
         if (sym === activeSymbol) return;
+        // Set the active symbol in the store FIRST so the hook rejects in-flight responses
+        setStoreActiveSymbol(sym);
         clearData();
         setActiveSymbol(sym);
     };

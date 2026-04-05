@@ -206,19 +206,36 @@ Required GitHub Secrets for deployment:
 
 ## Adding More Symbols
 
-Two env var changes, no code edits:
+No code changes needed — only two env var edits.
 
-**Backend** (root `.env`):
+### Step 1 — Backend
+
+Open the root `.env` file and add the new symbol to `SYMBOLS`:
 ```
 SYMBOLS=BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT
 ```
 
-**Frontend** (`frontend/.env` or Netlify env vars):
+### Step 2 — Frontend
+
+Open `frontend/.env` (or your Netlify/Railway env vars) and add the same symbol to `VITE_SYMBOLS`:
 ```
 VITE_SYMBOLS=BTC-USDT,ETH-USDT,SOL-USDT,XRP-USDT
 ```
 
-Restart both. The HUD header shows a tab per symbol. Clicking a tab or dashboard card switches all 8 panels to that asset and resets the graph.
+### Step 3 — Restart
+
+Restart both the backend and frontend. The new symbol tab appears automatically in the HUD header. Clicking it switches all 8 panels to that asset with a clean graph.
+
+### To remove a symbol
+
+Remove it from both `SYMBOLS` and `VITE_SYMBOLS`, then restart.
+
+### Rules
+
+- Both lists must contain the same symbols
+- Use Kraken pair format: `BTC-USDT`, `ETH-USDT`, `SOL-USDT`, `XRP-USDT`, `ADA-USDT`, `DOGE-USDT`, `AVAX-USDT`, `DOT-USDT`, `LINK-USDT`, `LTC-USDT`, `BCH-USDT`
+- Each symbol runs its own independent pipeline with a 2-second stagger to avoid Kraken rate limits
+- No hard limit on number of symbols — each one adds ~2 API calls per poll cycle
 
 ---
 

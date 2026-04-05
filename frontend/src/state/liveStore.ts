@@ -31,6 +31,7 @@ export interface LiveStore {
     consecutiveFailures: number;
     lastUpdated: string | null;
     isReplayMode: boolean;
+    activeSymbol: string;
     predictionHistory: Array<{ strictLine: number; smoothed: number; timestamp: string }>;
     priceHistory: Array<{ price: number; timestamp: string }>;
 
@@ -51,6 +52,7 @@ export interface LiveStore {
     setReplayMode: (active: boolean) => void;
     resetHistory: () => void;
     clearData: () => void;
+    setActiveSymbol: (symbol: string) => void;
 }
 
 export const useLiveStore = create<LiveStore>((set, get) => ({
@@ -65,6 +67,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     consecutiveFailures: 0,
     lastUpdated: null,
     isReplayMode: false,
+    activeSymbol: '',
     predictionHistory: [],
     priceHistory: [],
 
@@ -134,5 +137,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
         isStale: false,
         consecutiveFailures: 0,
     }),
+
+    setActiveSymbol: (symbol) => set({ activeSymbol: symbol }),
 }));
 
