@@ -1,39 +1,130 @@
-# Analytical HUD — Client Documentation
+# Analytical HUD — Client User Guide
 
-**Version:** 1.0.0  
-**Data Source:** Kraken Exchange (live)  
-**Asset:** BTC-USDT (1-minute timeframe)
+Welcome to the **Analytical HUD (Heads-Up Display)**! This document is your complete guide to understanding the "Trade" analytical architecture. Whether you are a trader looking at the visual dashboard or a developer integrating our live data into your own algorithms, this guide will explain exactly what the system does and how to use it.
 
 ---
 
-## What This System Is
+## 1. What is the Analytical HUD?
+The Analytical HUD is a professional-grade market interpretation tool. It acts as the "brain" for crypto market data. It continuously connects to the **Kraken Exchange** to pull live data (like BTC-USDT) and processes it through **15+ mathematical engines** every 2 seconds.
 
-The Analytical HUD is a real-time market condition interpretation tool. It ingests live market data from Kraken and runs it through a 15-engine analytical pipeline to produce structured outputs: volatility regime, liquidity zones, geometry classification, microstructure signals, and a probability-weighted prediction score.
+Instead of staring at standard candlestick charts and guessing, the HUD provides mathematical certainties: exact risk metrics, precise probabilities, and structural maps.
 
-**This is a pure analytical tool. It does not execute orders, manage positions, or provide trading advice.**
+**Important Note:** This is an analytical tool. It does not automatically place trades for you or manage your wallets. It is designed to give you an unfair advantage by processing complex market structure faster and more thoroughly than humanly possible.
 
 ---
 
-## How to Run It
+## 2. Visual Dashboard: What You Will See
+If you are using the visual web interface, the HUD presents market mechanics that normally require hours of manual charting:
 
-### Requirements
-- Node.js 18 or higher
-- Two terminal windows
+- **Volatility Regimes**: A live gauge that tells you if the market is currently in a *High, Normal, Low, or Extreme* volatility state.
+- **Liquidity Maps**: Visual "heat zones" showing exactly where pending orders and stop-losses are pooling. Price often gravitates toward these zones.
+- **Market Structure Trends**: Instant detection of trend shifts, highlighting whether the current price is in a "Premium" (expensive) or "Discount" (cheap) zone.
+- **System Health**: A diagnostics panel that ensures the math is arriving on time, showing the exact millisecond latency of the data feed.
 
-### Terminal 1 — Backend API
+---
+
+## 3. Key Metrics Explained Simply
+The HUD is driven by deep math. Here is a simple breakdown of the main terms you will encounter on the platform:
+
+### 📈 Predictive Scoring
+- **Prediction Bands:** The main graph doesn't just guess a single direction. It draws three "probability bands" (50%, 80%, and 95% confidence). This shows you the likely *range* of movement securely.
+- **Expected Value (EV):** A statistical score telling you if a setup is mathematically worth trading based on potential reward versus risk.
+
+### 🛡️ Risk Management
+- **Expected Drawdown (EDD):** This is a critical safety metric. It predicts exactly how far the price might pull back against you before moving in your anticipated direction. 
+- **Safety Overrides (Hard Rejects):** If the market becomes too dangerous, the system will enter an **IDLE state** and refuse to generate setups. It will explicitly tell you why (e.g., *"Global Stress is CAUTION"* or *"Win probability is below 80%*").
+
+### 📐 Geometry & Microstructure
+- **CVD Divergence:** Detects when the true volume of buy/sell orders actually contradicts the price movement. This is a very strong reversal signal.
+- **Geometry States:** Classifies the current shape of the market (e.g., "STABLE_STRUCTURE"), meaning the current trend has strong structural integrity.
+
+---
+
+## 4. How the "Brain" Works: The Pipeline
+Every 2 seconds, the software runs through four intelligence layers in a strict order. Downstream calculations rely on upstream results:
+
+1. **Context Layer**: Assesses the "Global Battlefield" (checks systemic stress, macro bias, and active market sessions like London or NY).
+2. **Structure Layer**: Identifies local terrain (finds internal/external swings and liquidity traps).
+3. **Geometry Layer**: Analyzes micro-movements of price action (curvature and specific candle absorption).
+4. **Decision Layer**: Synthesizes all data to calculate the final probability score and verify safety limits.
+
+---
+
+## 5. System Architecture & Core Formulas
+For users wanting to understand exactly *how* the program computes its decisions and sustains real-time performance, here is the technical breakdown.
+
+### 🏗️ 3-Tier Architecture
+The project follows a decoupled, highly-scalable design:
+1. **Analytical HUD (Frontend):** Built in React 18, it is completely decoupled from heavy math processing. It only focuses on drawing 60fps dynamic charts and gauges.
+2. **Analytical API (Backend):** Built in Node.js, this is the main orchestrator. It manages the deterministic 2000ms loop, querying the exchange, running the 15+ engines, and serving data via a Token-limited REST API.
+3. **Shared Contracts Library:** A centralized repository of strict requirements ensuring that the Frontend perfectly understands the exact mathematical outputs generated by the Backend. 
+
+### 🧮 Core Mathematical Formulas
+The HUD removes human biases by calculating raw statistics natively. Here are the core formulas processed in the background layer:
+
+- **Average True Range (ATR):** Measures pure, unadulterated market volatility.
+  *Formula:* `TR = Max( (High-Low) , |High - PrevClose| , |Low - PrevClose| )` rolled over a 14-period window.
+- **Expected Drawdown (EDD):** Predicts the harshness of a given pullback.
+  *Formula:* `EDD = ATR × Volatility Factor` (E.g., if the ATR is $50 and the Volatility State is normal (1.0 factor), the EDD baseline limit is mathematically locked to $50).
+- **Volatility Bandwidth**: Assesses how wide price is swinging relative to its overall price index to dictate structural stress.
+  *Formula:* `Bandwidth = (High - Low) / Close`
+- **Expected Value (EV):** The ultimate statistical score to determine if a market structure is mathematically profitable over 100 iterations.
+  *Formula:* `EV = (Win Probability % × Target Distance) - (Loss Probability % × Stop Distance)`
+- **Prediction Matrix Score:** Uses dynamically weighted coefficients `(G, L, V, M, O)` from the Geometry, Liquidity, Volatility, Macro, and Orderflow engines to constantly recalculate the probability string.
+
+---
+
+## 6. Developer Guide: API Integration
+Our system is built "API-First." If you are a B2B client or developer looking to bypass the visual dashboard and feed our mathematical outputs directly into your own trading bots, you can use our local REST API.
+
+### Authentication & Rate Limits
+- **Security:** All sensitive endpoints require a **Bearer Token** sent in the standard HTTP `Authorization` header.
+- **Limits:** To prevent server exhaustion, the API restricts traffic to **60 requests per minute**.
+
+### Core Endpoints
+
+#### 1. Live Market Analysis
+**`GET /api/v1/analysis/live?symbol=BTC-USDT&timeframe=1m`**
+Retrieves the real-time calculated probabilities, risk limits, predictability bands, and structural maps for a specific asset.
+
+**Example Request:**
 ```bash
-npm run build
-node dist/src/index.js
+curl -X GET "http://localhost:3000/api/v1/analysis/live?symbol=BTC-USDT&timeframe=1m" \
+     -H "Authorization: Bearer YOUR_SECRET_TOKEN"
 ```
-The backend starts at `http://localhost:3000` and begins pulling live data from Kraken immediately.
 
-### Terminal 2 — Frontend HUD
+**Key Data inside the JSON Response:**
+- `prediction`: Contains your strict line targets and probability bands.
+- `risk.edd`: Your calculated Expected Drawdown limits.
+- `liquidity.zones`: Specific price boundaries where volume is currently trapped.
+- `state.rejectReasons`: A clear list of reasons why the system recommends staying out of the market right now (if applicable).
+
+#### 2. Multi-Symbol Dashboard Summary
+**`GET /api/v1/analysis/dashboard`**
+Provides a lightweight overview of all tracked symbols at once. Perfect for scanning the entire market rapidly.
+
+#### 3. System Diagnostics
+**`GET /api/v1/diagnostics/performance`**
+Returns server latency statistics (P50, P95, P99 times). Your automated bots can use this to verify the data stream is healthy and fast enough before executing logic.
+
+---
+
+## 7. Dedicated Installation & Startup
+If you are running the software locally on your own machine, ensure you have **Node.js (version 18+)** installed.
+
+**Step 1: Start the Backend Analytics Server**
+Open a terminal inside the main `trade` folder and run:
 ```bash
-cd frontend
+npm install
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+*The backend API is now actively processing Kraken data on `http://localhost:3000`.*
 
----
-
-## Deploying to 
+**Step 2: Start the Visual Dashboard (HUD)**
+Open a **new, second** terminal window, navigate to the frontend, and run:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+*Open your web browser to `http://localhost:5173` to view the live user interface.*
