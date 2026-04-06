@@ -1,96 +1,114 @@
-// Prediction Graph Panel
-// Requirements: 22.1, 22.2, 22.3, 22.4, 1.2, 1.4
+// Prediction Graph Panel — rich chart with details
+// Requirements: 22.1–22.4
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useLiveStore } from '../state/liveStore';
 import { PredictionChart } from './PredictionChart';
 
 const pct = (v: number | null | undefined) =>
     v != null ? `${(v * 100).toFixed(1)}%` : '—';
 
-const fmt4 = (v: number | null | undefined) =>
-    v != null ? v.toFixed(4) : '—';
-
 export function PredictionGraph(): React.ReactElement {
     const prediction = useLiveStore(s => s.prediction);
     const liquidity = useLiveStore(s => s.liquidity);
+    const [showBands, setShowBands] = useState(true);
 
     if (!prediction) {
         return (
             <div className="panel prediction-graph">
-                <div className="panel-title">Prediction</div>
+                <h2 className="panel-title"><span className="panel-title-icon">📊</span> Prediction</h2>
                 <span className="no-data">Awaiting data…</span>
             </div>
         );
     }
 
-    const { strictLine, smoothed, min, max, band50, band80, band95, liquidityBias, decayed } = prediction;
+    const { strictLine, smoothed, decayed, liquidityBias, min, max, band50, band80, band95 } = prediction;
+
+    const alignColor = smoothed >= 0.7 ? 'var(--green)'
+        : smoothed >= 0.4 ? 'var(--yellow)'
+            : 'var(--red)';
+
+    const alignLabel = smoothed >= 0.7 ? 'HIGH' : smoothed >= 0.4 ? 'MID' : 'LOW';
+    const alignBadgeClass = smoothed >= 0.7 ? 'green' : smoothed >= 0.4 ? 'yellow' : 'red';
 
     return (
         <div className="panel prediction-graph" role="region" aria-label="Prediction Graph">
-            <div className="panel-title">Prediction</div>
-            {/* StrictLine is a 0–1 alignment score: 0 = fully bearish/unstable, 1 = fully bullish/stable.
-                It is NOT a price, probability, or percent change. It is a weighted composite of
-                geometry, liquidity, volatility, microstructure, orderflow, and macro signals. */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border2)' }}>
+                <h2 className="panel-title" style={{ border: 'none', padding: 0 }}>
+                    <span className="panel-title-icon">📊</span> Prediction
+                </h2>
+                <span className={`badge ${alignBadgeClass}`}>{alignLabel} ALIGNMENT</span>
+            </div>
+
             <PredictionChart />
 
-            <div className="stat-grid">
-                <div className="stat-card">
-                    <span className="stat-label">Alignment Score (0–1)</span>
-                    <span className="stat-value accent">{pct(strictLine)}</span>
+            {/* Primary score — single prominent display */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                <div className="stat-card" style={{ flex: 2, borderLeft: `3px solid ${alignColor}` }}>
+                    <span className="stat-label">Alignment Score</span>
+                    <span className="stat-value" style={{ color: alignColor, fontSize: '28px' }}>
+                        {pct(smoothed)}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--text3)' }}>
+                        Raw: {pct(strictLine)} · Decayed: {pct(decayed)}
+                    </span>
                 </div>
-                <div className="stat-card">
-                    <span className="stat-label">Smoothed</span>
-                    <span className="stat-value">{pct(smoothed)}</span>
-                </div>
-                <div className="stat-card">
-                    <span className="stat-label">Decayed Value</span>
-                    <span className="stat-value muted">{pct(decayed)}</span>
-                </div>
-                <div className="stat-card">
-                    <span className="stat-label">Liquidity Bias</span>
-                    <span className="stat-value yellow">{fmt4(liquidityBias)}</span>
+                <div className="stat-card" style={{ flex: 1 }}>
+                    <span className="stat-label">Liq Bias</span>
+                    <span className="stat-value yellow" style={{ fontSize: '18px' }}>
+                        {liquidityBias != null ? liquidityBias.toFixed(3) : '—'}
+                    </span>
                 </div>
             </div>
 
-            <div className="section-label">Prediction Zone</div>
+            {/* Zone range */}
             <div className="metric-row">
-                <span className="label">Min / Max</span>
+                <span className="label">Min / Max Zone</span>
                 <span className="value">{pct(min)} – {pct(max)}</span>
             </div>
 
-            <div className="section-label">Volatility Envelopes</div>
-            <div className="band-list">
-                <div className="band-item">
-                    <span className="band-pct">Wide</span>
-                    <div className="band-bar-track">
-                        <div className="band-bar-fill band-95-fill"
-                            style={{ marginLeft: `${band95[0] * 100}%`, width: `${Math.max(0, band95[1] - band95[0]) * 100}%` }} />
-                    </div>
-                    <span className="band-val">{pct(band95[0])} – {pct(band95[1])}</span>
+            {/* Collapsible volatility envelopes */}
+            <div>
+                <div
+                    className="collapsible-header"
+                    onClick={() => setShowBands(v => !v)}
+                    role="button"
+                    aria-expanded={showBands}
+                >
+                    <span className="collapsible-label">📉 Volatility Envelopes</span>
+                    <span className={`collapsible-chevron ${showBands ? 'open' : ''}`}>▼</span>
                 </div>
-                <div className="band-item">
-                    <span className="band-pct">Mid</span>
-                    <div className="band-bar-track">
-                        <div className="band-bar-fill band-80-fill"
-                            style={{ marginLeft: `${band80[0] * 100}%`, width: `${Math.max(0, band80[1] - band80[0]) * 100}%` }} />
+                {showBands && (
+                    <div className="collapsible-body">
+                        <div className="band-list" style={{ paddingTop: '4px' }}>
+                            {[
+                                { label: 'Wide (95%)', band: band95, cls: 'band-95-fill' },
+                                { label: 'Mid (80%)', band: band80, cls: 'band-80-fill' },
+                                { label: 'Narrow (50%)', band: band50, cls: 'band-50-fill' },
+                            ].map(({ label, band, cls }) => (
+                                <div className="band-item" key={label}>
+                                    <span className="band-pct">{label.split(' ')[0]}</span>
+                                    <div className="band-bar-track">
+                                        <div
+                                            className={`band-bar-fill ${cls}`}
+                                            style={{
+                                                left: `${band[0] * 100}%`,
+                                                width: `${Math.max(0, band[1] - band[0]) * 100}%`,
+                                            }}
+                                        />
+                                    </div>
+                                    <span className="band-val">{pct(band[0])} – {pct(band[1])}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <span className="band-val">{pct(band80[0])} – {pct(band80[1])}</span>
-                </div>
-                <div className="band-item">
-                    <span className="band-pct">Narrow</span>
-                    <div className="band-bar-track">
-                        <div className="band-bar-fill band-50-fill"
-                            style={{ marginLeft: `${band50[0] * 100}%`, width: `${Math.max(0, band50[1] - band50[0]) * 100}%` }} />
-                    </div>
-                    <span className="band-val">{pct(band50[0])} – {pct(band50[1])}</span>
-                </div>
+                )}
             </div>
 
             {liquidity && (
                 <div className="metric-row">
-                    <span className="label">Liquidity Zones</span>
-                    <span className="value">{liquidity.zones.length} zones</span>
+                    <span className="label">💧 Active Zones</span>
+                    <span className="value">{liquidity.zones.length}</span>
                 </div>
             )}
         </div>

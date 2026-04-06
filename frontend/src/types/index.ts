@@ -104,7 +104,7 @@ export interface LiveAnalysisResponse {
     liquidity: LiquidityMapOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
-    scoring?: { probability: number; contributions: Record<string, number> };
+    scoring: { probability: number; contributions: Record<string, number> };
     timestamp: string;
     degraded?: boolean;
     failedEngines?: string[];

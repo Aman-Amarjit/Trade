@@ -84,7 +84,9 @@ export function ReplayPanel(): React.ReactElement {
     return (
         <div className="replay-panel" role="region" aria-label="Replay Controls">
             <div className="replay-header">
-                <span className="replay-title">Replay Mode</span>
+                <span className="replay-title">
+                    <span>⏮</span> Replay Mode
+                </span>
                 <button
                     className={`replay-toggle ${isReplayMode ? 'active' : ''}`}
                     onClick={toggleReplay}

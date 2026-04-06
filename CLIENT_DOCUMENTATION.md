@@ -11,6 +11,20 @@ The system runs 15 analytical engines every cycle on real Kraken market data, an
 
 ---
 
+## How It Works
+
+The "Trade" Analytical HUD operates through a continuous real-time cycle:
+
+1. **Data Ingestion:** Every few seconds, the backend securely fetches raw market data (OHLCV, Orderbook depth) directly from public APIs like Kraken and Yahoo Finance. 
+2. **The Pipeline Analysis:** This raw data is fed into a 15-step "Pipeline Orchestrator". Each of the 15 engines is responsible for a unique perspective of the market:
+   - *Context:* Is the global market safe or stressed? What is the current volatility?
+   - *Structure:* Where are the major support/resistance zones and liquidity holes?
+   - *Geometry & Micro:* What is the immediate price action doing? Is order flow showing absorption?
+3. **Synthesis & Scoring:** The engines feed their outputs into Decision Engines. These finalize the "Alignment Score," a unified metric representing the multi-layered favorability of current conditions. 
+4. **Real-time Display:** The finalized analytical bundle is pushed via the REST API to the Frontend HUD, updating the charts, scores, alerts, and liquidity maps for the user dynamically.
+
+---
+
 ## Architecture
 
 ```
@@ -81,6 +95,33 @@ No API keys required. All public endpoints.
 **Note on Yahoo Finance:** The unofficial Yahoo Finance endpoint is used for macro data (DXY, VIX, SPX, Gold). This is suitable for development and demo use. For commercial production, replace with a paid feed such as Alpha Vantage, Polygon.io, or Quandl. Hardcoded fallback values are used if Yahoo is unavailable.
 
 If Kraken is unavailable, the system automatically falls back to deterministic mock data so the pipeline keeps running.
+
+---
+
+## How To Use It (User Guide)
+
+The system is designed to be a passive "Heads-Up Display" (HUD) for analysts. It requires no manual input once running.
+
+### 1. Starting Up
+If running locally, execute the `start.bat` script provided in the project root. This will automatically start both the backend API and the frontend UI concurrently. When ready, open your browser to the local frontend address (usually `http://localhost:5173`).
+
+### 2. Monitoring the Multi-Asset Dashboard
+The Multi-Asset Dashboard provides a quick glance at all tracked symbols (e.g., BTC, ETH, SOL) simultaneously.
+Look for:
+- **State:** Is it IDLE, COOLDOWN, or HIGH ALIGNMENT?
+- **Global Stress & Volatility:** Instantly know if the macro environment is "SAFE" to analyze.
+
+### 3. Drilling Down into the Asset HUD
+Click on any specific asset (or use the asset selector) to open its detailed analytical HUD.
+- **Prediction Graph:** Watch the "Alignment Score" line. A score near 1.0 means all engines align favorably. A score near 0.0 indicates conflicting or poor conditions.
+- **Liquidity Map:** Identify price levels where stop losses or large orders are physically clustered.
+- **Diagnostics & Risk:** Check the expected drawdown (EDD) and whether the Risk Manager is throwing a "Hard Reject" flag due to unsafe conditions.
+
+### 4. Listening for Alerts
+Keep the HUD open in a background tab. The system employs distinct audio cues to alert you to significant market shifts so you don't have to continuously stare at the charts:
+- A sharp downward glide means a Sweep is detected.
+- An ascending chime indicates a Break of Structure (BOS) is confirmed.
+- Alarm sounds indicate dangerous volatility or macro stress shifts.
 
 ---
 

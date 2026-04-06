@@ -17,6 +17,7 @@ interface AssetSummary {
     volatilityRegime?: string;
     globalStress?: string;
     state?: string;
+    geometryRegime?: string | null;
     expectedMove?: number;
     timeWindow?: string;
     degraded?: boolean;
@@ -84,8 +85,10 @@ export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelP
     return (
         <div className="panel dashboard-panel" role="region" aria-label="Multi-Asset Dashboard">
             <div className="panel-title-row">
-                <h2 className="panel-title">Multi-Asset Overview</h2>
-                {lastFetch && <span className="dashboard-updated">Updated: {lastFetch}</span>}
+                <h2 className="panel-title" style={{ border: 'none', padding: 0 }}>
+                    <span className="panel-title-icon">📈</span> Multi-Asset Overview
+                </h2>
+                {lastFetch && <span className="dashboard-updated">{lastFetch}</span>}
             </div>
 
             {summaries.length === 0 ? (
@@ -98,6 +101,7 @@ export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelP
                             <div
                                 key={s.symbol}
                                 className={`dashboard-card ${s.degraded ? 'degraded' : ''} ${isActive ? 'active-asset' : ''}`}
+                                data-symbol={s.symbol}
                                 onClick={() => onSelectSymbol?.(s.symbol)}
                                 role="button"
                                 tabIndex={0}
@@ -128,12 +132,17 @@ export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelP
                                         <div className="dashboard-badges">
                                             {s.volatilityRegime && (
                                                 <span className={`badge ${REGIME_CLASS[s.volatilityRegime] ?? ''}`}>
-                                                    {s.volatilityRegime}
+                                                    ⚡ {s.volatilityRegime}
                                                 </span>
                                             )}
                                             {s.globalStress && (
                                                 <span className={`badge ${STRESS_CLASS[s.globalStress] ?? ''}`}>
-                                                    {s.globalStress}
+                                                    {s.globalStress === 'SAFE' ? '✓' : s.globalStress === 'HALT' ? '✕' : '⚠'} {s.globalStress}
+                                                </span>
+                                            )}
+                                            {s.geometryRegime && (
+                                                <span className={`badge regime-${s.geometryRegime.toLowerCase().replace(/_/g, '-')}`}>
+                                                    {s.geometryRegime.replace(/_STRUCTURE$/, '')}
                                                 </span>
                                             )}
                                             {s.state && (

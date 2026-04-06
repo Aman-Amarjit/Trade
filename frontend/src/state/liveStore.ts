@@ -11,6 +11,11 @@ import type {
     MicrostructureOutput,
 } from '../types/index';
 
+export interface ScoringOutput {
+    probability: number;
+    contributions: Record<string, number>;
+}
+
 export interface Alert {
     id: string;
     message: string;
@@ -26,6 +31,7 @@ export interface LiveStore {
     liquidity: LiquidityMapOutput | null;
     geometry: GeometryOutput | null;
     microstructure: MicrostructureOutput | null;
+    scoring: ScoringOutput | null;
     alerts: Alert[];
     isStale: boolean;
     consecutiveFailures: number;
@@ -43,6 +49,7 @@ export interface LiveStore {
         liquidity: LiquidityMapOutput;
         geometry: GeometryOutput;
         microstructure: MicrostructureOutput;
+        scoring: ScoringOutput;
         timestamp: string;
     }) => void;
     incrementFailures: () => void;
@@ -62,6 +69,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     liquidity: null,
     geometry: null,
     microstructure: null,
+    scoring: null,
     alerts: [],
     isStale: false,
     consecutiveFailures: 0,
@@ -91,6 +99,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
             liquidity: data.liquidity,
             geometry: data.geometry,
             microstructure: data.microstructure,
+            scoring: data.scoring,
             lastUpdated: data.timestamp,
             isStale: false,
             consecutiveFailures: 0,
@@ -131,6 +140,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
         liquidity: null,
         geometry: null,
         microstructure: null,
+        scoring: null,
         predictionHistory: [],
         priceHistory: [],
         lastUpdated: null,

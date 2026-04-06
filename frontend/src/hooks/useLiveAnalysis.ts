@@ -20,6 +20,7 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
     const prevBos = useRef(false);
     const prevRetestZone = useRef(false);
     const prevCollapseProb = useRef(0);
+    const prevResistantCount = useRef(0);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -65,6 +66,7 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                         liquidity: data.liquidity,
                         geometry: data.geometry,
                         microstructure: data.microstructure,
+                        scoring: data.scoring,
                         timestamp: data.timestamp,
                     });
 
@@ -118,6 +120,13 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                         playCollapseWarning();
                     }
                     prevCollapseProb.current = collapseProb;
+
+                    // Resistant cluster interaction (Section 9.8)
+                    const resistantCount = data.liquidity.zones.filter(z => z.type === 'RESISTANT_CLUSTER').length;
+                    if (resistantCount > prevResistantCount.current) {
+                        addAlert({ message: `Resistant cluster detected — ${resistantCount} overlapping liquidity zone${resistantCount !== 1 ? 's' : ''}`, severity: 'info', timestamp: ts, expiresAt: expire });
+                    }
+                    prevResistantCount.current = resistantCount;
 
                     // Pipeline degraded
                     if (data.degraded && data.failedEngines?.length) {

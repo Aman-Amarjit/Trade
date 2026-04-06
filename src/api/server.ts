@@ -200,6 +200,7 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
                 volatilityRegime: result.context.volatilityRegime,
                 globalStress: result.context.globalStress,
                 state: result.decision.state.state,
+                geometryRegime: result.geometry.geometry.geometryRegime ?? null,
                 expectedMove: edd,
                 timeWindow,
                 degraded: result.degraded,

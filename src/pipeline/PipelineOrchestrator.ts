@@ -333,21 +333,22 @@ export class PipelineOrchestrator {
         const geometryBundle: GeometryBundle = { geometry, microstructure, orderflow };
 
         // Smooth alignment score to prevent M input from spiking each cycle
-        this.smoothedAlignment = 0.1 * microstructure.alignmentScore + 0.9 * this.smoothedAlignment;
+        // Alpha 0.05 = very slow EMA (~20 cycle half-life) — prevents sawtooth
+        this.smoothedAlignment = 0.05 * microstructure.alignmentScore + 0.95 * this.smoothedAlignment;
         const stableAlignment = this.smoothedAlignment;
 
         // Smooth structurePressure to prevent G input from spiking each cycle
         const rawStructurePressure = geometry.structurePressure ?? 0.5;
-        this.smoothedStructurePressure = 0.15 * rawStructurePressure + 0.85 * this.smoothedStructurePressure;
+        this.smoothedStructurePressure = 0.08 * rawStructurePressure + 0.92 * this.smoothedStructurePressure;
         const stableG = Math.max(0, Math.min(1, this.smoothedStructurePressure));
 
         // Smooth bid/ask pressure to prevent O input from spiking each cycle
         const rawBidAsk = (orderflow.bidAskPressure + 1) / 2;
-        this.smoothedBidAskPressure = 0.15 * rawBidAsk + 0.85 * this.smoothedBidAskPressure;
+        this.smoothedBidAskPressure = 0.08 * rawBidAsk + 0.92 * this.smoothedBidAskPressure;
         const stableO = Math.max(0, Math.min(1, this.smoothedBidAskPressure));
 
         // Smooth atrPercentile to prevent V input from spiking each cycle
-        this.smoothedAtrPercentile = 0.1 * bundle.volatility.atrPercentile + 0.9 * this.smoothedAtrPercentile;
+        this.smoothedAtrPercentile = 0.05 * bundle.volatility.atrPercentile + 0.95 * this.smoothedAtrPercentile;
         const stableV = Math.max(0, Math.min(1, this.smoothedAtrPercentile));
 
         // ── STEP 4: Decision Engines ─────────────────────────────────────────

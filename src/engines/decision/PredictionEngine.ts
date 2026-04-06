@@ -112,9 +112,13 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         ];
 
         // Formula 15/33 — Temporal smoothing (on session-adjusted value)
-        const alpha = regimePersistence === 'HIGH_PERSISTENCE' ? 0.4
-            : regimePersistence === 'MEDIUM_PERSISTENCE' ? 0.3
-                : 0.2;
+        // Low alpha = slow EMA = smooth graph. Prevents sawtooth from cycle-to-cycle noise.
+        // HIGH_PERSISTENCE: alpha=0.08 (~12 cycle half-life)
+        // MEDIUM_PERSISTENCE: alpha=0.06 (~16 cycle half-life)
+        // LOW_PERSISTENCE: alpha=0.04 (~25 cycle half-life)
+        const alpha = regimePersistence === 'HIGH_PERSISTENCE' ? 0.08
+            : regimePersistence === 'MEDIUM_PERSISTENCE' ? 0.06
+                : 0.04;
         const smoothed = alpha * strictLine + (1 - alpha) * (previousSmoothed ?? strictLine);
 
         // Formula 16/34 — Signal decay (on session-adjusted value)
