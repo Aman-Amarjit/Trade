@@ -55,11 +55,12 @@ export const GeometryClassifier: Engine<GeometryInput, GeometryOutput> = {
 
         const { priceSeries, atr, wickUp, wickDown, zWicks, askVolume, bidVolume } = input;
 
-        // Edge case: insufficient data
+        // Edge case: invalid or insufficient data
         // Curvature requires 4 points (backward-looking second difference); rotation requires 3.
-        if (priceSeries.length < 4 || atr <= 0) {
+        const allPricesFinite = priceSeries.every(p => Number.isFinite(p));
+        if (priceSeries.length < 4 || !Number.isFinite(atr) || atr <= 0 || !allPricesFinite) {
             console.warn(
-                '[GeometryClassifier] Insufficient data: priceSeries.length < 4 or atr <= 0. Returning null output.',
+                `[GeometryClassifier] Invalid or insufficient data (len: ${priceSeries.length}, atr: ${atr}). Returning null output.`,
             );
             return { ...NULL_OUTPUT };
         }
@@ -72,17 +73,20 @@ export const GeometryClassifier: Engine<GeometryInput, GeometryOutput> = {
         // Formula 1 — curvature (backward-looking one-sided second difference — causal, no future data)
         // Uses [n-4, n-3, n-2] = [t-2, t-1, t] so no future candle is needed.
         const tPrev2 = n - 4; // t-2
-        const curvature = Math.abs(priceSeries[tPrev2] - 2 * priceSeries[tPrev] + priceSeries[t]) / atr;
+        const denominator = Math.max(atr, 1e-6);
+        const curvature = Math.abs(priceSeries[tPrev2] - 2 * priceSeries[tPrev] + priceSeries[t]) / denominator;
 
         // Formula 2 — imbalance
-        const wickTerm = zWicks === 0 ? 0 : 0.5 * (wickUp - wickDown) / zWicks;
+        // Ensure zWicks is not zero or extremely small
+        const safeZWicks = Math.max(zWicks, 1e-6);
+        const wickTerm = zWicks === 0 ? 0 : 0.5 * (wickUp - wickDown) / safeZWicks;
         const totalVolume = askVolume + bidVolume;
         const volumeTerm = totalVolume === 0 ? 0 : 0.5 * Math.abs(askVolume - bidVolume) / totalVolume;
         const imbalance = wickTerm + volumeTerm;
 
         // Formula 3 — rotation: (P(t) - P(t-1)) / ATR  [PDF Section 5.1.3]
         // Uses current minus previous (backward-looking), not forward-looking
-        const rotation = (priceSeries[t] - priceSeries[tPrev]) / atr;
+        const rotation = (priceSeries[t] - priceSeries[tPrev]) / denominator;
 
         // Formula 4 — structurePressure
         const structurePressure = 1 / (1 + curvature + Math.abs(imbalance));

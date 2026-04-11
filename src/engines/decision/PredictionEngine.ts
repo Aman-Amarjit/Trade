@@ -50,23 +50,30 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
             assetVolatilityProfile, signalAge, volatilityRegime } = input;
 
         // Decay half-life T: deterministic from volatility regime (spec says "increases during high volatility")
-        // LOW=40 cycles, NORMAL=30, HIGH=20, EXTREME=10 — higher volatility = faster decay
+        // LOW=40 cycles, NORMAL=35, HIGH=25, EXTREME=20 — higher volatility = faster decay
         const DECAY_HALF_LIFE: Record<string, number> = {
-            LOW: 40, NORMAL: 30, HIGH: 20, EXTREME: 10,
+            LOW: 40, NORMAL: 35, HIGH: 25, EXTREME: 20,
         };
-        const decayHalfLife = DECAY_HALF_LIFE[volatilityRegime] ?? 30;
+        const decayHalfLife = DECAY_HALF_LIFE[volatilityRegime] ?? 35;
 
         // Validate inputs in [0,1]
         for (const [name, val] of [['G', G], ['L', L], ['V', V], ['M', M], ['O', O], ['X', X]] as [string, number][]) {
-            if (typeof val !== 'number' || val < 0 || val > 1) {
-                return { type: 'VALIDATION', message: `Input ${name} must be in [0, 1], got ${val}`, recoverable: false };
+            if (!Number.isFinite(val) || val < 0 || val > 1) {
+                return {
+                    type: 'VALIDATION',
+                    message: `Prediction input ${name} must be in range [0, 1]. Got: ${val}`,
+                    recoverable: true,
+                };
             }
         }
 
-        // Validate weights sum to 1
-        const { w1, w2, w3, w4, w5, w6 } = weights;
-        const weightSum = w1 + w2 + w3 + w4 + w5 + w6;
-        if (Math.abs(weightSum - 1.0) > 1e-9) {
+        // Section 5.1.7 — Validate weight sum
+        const weightValues = Object.values(weights);
+        if (weightValues.some(v => !Number.isFinite(v))) {
+             return { type: 'VALIDATION', message: `All weights must be finite numbers`, recoverable: false };
+        }
+        const weightSum = weightValues.reduce((a, b) => a + b, 0);
+        if (Math.abs(weightSum - 1.0) > 0.001) {
             return { type: 'VALIDATION', message: `Weights must sum to 1.0, got ${weightSum}`, recoverable: false };
         }
 
@@ -74,6 +81,8 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         if (atr <= 0) {
             return { type: 'VALIDATION', message: `atr must be > 0, got ${atr}`, recoverable: false };
         }
+
+        const { w1, w2, w3, w4, w5, w6 } = weights;
 
         // Formula 11/28 — StrictLine
         const rawStrictLine = w1 * G + w2 * L + w3 * V + w4 * M + w5 * O + w6 * X;
@@ -115,11 +124,7 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         const smoothed = alpha * adjustedLine + (1 - alpha) * (previousSmoothed ?? adjustedLine);
 
         // Formula 16/34 — Signal decay
-        const T = volatilityRegime === 'LOW' ? 40
-            : volatilityRegime === 'NORMAL' ? 35
-                : volatilityRegime === 'HIGH' ? 25
-                    : 20;
-        const decayed = adjustedLine * Math.exp(-signalAge / T);
+        const decayed = adjustedLine * Math.exp(-signalAge / decayHalfLife);
 
         // Volatility adjustment output represents volatility-driven sensitivity
         const volatilityAdjustment = atrNorm * assetVolatilityProfile * sessionFactor;
