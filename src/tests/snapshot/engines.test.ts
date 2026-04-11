@@ -167,7 +167,7 @@ describe('Snapshot tests — all 15 engines', () => {
             microstructure: { sweep: true, divergence: false, cvdDivergence: false, bosDetected: true, retestZone: true, htfAlignment: true, alignmentScore: 0.8 },
             volatilityRegime: 'NORMAL', globalStress: 'SAFE',
             atr: 200, volatilityFactor: 1.0, stopMultiplier: 1.0, targetMultiplier: 1.5, eddThreshold: 400,
-            currentPrice: 50000,
+            currentPrice: 50000, dailyDrawdown: 0, dailyDrawdownCap: 1000,
         });
         expect(result).toMatchSnapshot();
     });

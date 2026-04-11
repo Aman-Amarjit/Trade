@@ -21,6 +21,7 @@ export interface RiskInput {
     volatilityFactor: number;
     stopMultiplier: number;
     eddThreshold: number;
+    targetMultiplier: number;
     currentPrice: number;
     dailyDrawdown: number;
     dailyDrawdownCap: number;
