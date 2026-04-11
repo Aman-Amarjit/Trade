@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { SliderPanel } from './SliderPanel.js';
-import { useLiveStore } from '../state/liveStore.js';
+
 
 const WEIGHT_MIN = 0.05;
 const WEIGHT_MAX = 0.60;

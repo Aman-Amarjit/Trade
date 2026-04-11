@@ -7,6 +7,7 @@ import '@testing-library/jest-dom'; // Fix for toBeInTheDocument type error
 import React from 'react';
 import { AlertsPanel } from './AlertsPanel.js';
 import { useLiveStore } from '../state/liveStore.js';
+import type { GeometryOutput } from '../types/index.js';
 
 describe('AlertsPanel', () => {
     beforeEach(() => {
@@ -24,7 +25,19 @@ describe('AlertsPanel', () => {
                     cooldownRemaining: 0,
                     alignmentScore: 0
                 },
-                risk: { hardReject: false, rejectReasons: [], probability: 0, edd: 0, stopDistance: 0, targetDistance: 0, ev: 0 } as any
+                risk: { 
+                    hardReject: false, 
+                    rejectReasons: [], 
+                    probability: 0,
+                    edd: 0,
+                    stopDistance: 0,
+                    targetDistance: 0,
+                    ev: 0,
+                    volatilityRegime: 'NORMAL',
+                    globalStress: 'SAFE',
+                    geometryStable: true,
+                    microstructureComplete: false
+                }
             });
         });
     });
@@ -37,7 +50,18 @@ describe('AlertsPanel', () => {
     it('renders system status correctly', async () => {
         act(() => {
             useLiveStore.setState({
-                geometry: { geometryRegime: 'STABLE STRUCTURE' } as any,
+                geometry: { 
+                    geometryRegime: 'STABLE_STRUCTURE',
+                    curvature: null,
+                    imbalance: null,
+                    rotation: null,
+                    structurePressure: null,
+                    rotationPressure: null,
+                    collapseProb: null,
+                    breakoutProb: null,
+                    microState: null,
+                    isStable: true
+                } as GeometryOutput,
                 state: { 
                     state: 'COOLDOWN', 
                     previousState: 'IDLE',

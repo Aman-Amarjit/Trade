@@ -56,7 +56,7 @@ export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelP
                     setSummaries(data);
                     setLastFetch(new Date().toLocaleTimeString());
                 }
-            } catch { }
+            } catch { /* silently ignore fetch errors — retry on next interval */ }
         };
         refresh();
         const timer = setInterval(refresh, 5000);
