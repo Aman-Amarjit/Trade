@@ -7,7 +7,7 @@
 
 **Trade** is a high-performance, real-time analytics platform designed for deep market structure interpretation, breakout cycle detection, and institutional-grade risk management.
 
-![Dashboard Mockup](./assets/dashboard_mockup.png)
+![Dashboard Mockup](./assets/dashboard_mockup.jpg)
 
 ---
 
