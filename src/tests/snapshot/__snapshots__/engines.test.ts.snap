@@ -121,6 +121,8 @@ exports[`Snapshot tests — all 15 engines > RegimePersistenceEngine snapshot 1`
 
 exports[`Snapshot tests — all 15 engines > RiskManager snapshot 1`] = `
 {
+  "dailyDrawdown": 0,
+  "dailyDrawdownCap": 1000,
   "edd": 200,
   "ev": 225,
   "feeAwareNetProfit": 0.39999999999999997,
