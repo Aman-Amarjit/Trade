@@ -12,23 +12,31 @@ const WEIGHT_MAX = 0.60;
 describe('SliderPanel', () => {
     it('renders weight sliders', () => {
         render(<SliderPanel />);
+        const header = screen.getByText(/Engine Weights/i);
+        fireEvent.click(header);
         expect(screen.getByLabelText(/Weight for G/i)).toBeDefined();
     });
 
     it('Weight Guard: slider min is 0.05', () => {
         render(<SliderPanel />);
+        const header = screen.getByText(/Engine Weights/i);
+        fireEvent.click(header);
         const slider = screen.getByLabelText(/Weight for G/i) as HTMLInputElement;
         expect(parseFloat(slider.min)).toBe(WEIGHT_MIN);
     });
 
     it('Weight Guard: slider max is 0.60', () => {
         render(<SliderPanel />);
+        const header = screen.getByText(/Engine Weights/i);
+        fireEvent.click(header);
         const slider = screen.getByLabelText(/Weight for G/i) as HTMLInputElement;
         expect(parseFloat(slider.max)).toBe(WEIGHT_MAX);
     });
 
     it('weight normalization: all weights sum to 1.0 after adjustment', () => {
         render(<SliderPanel />);
+        const header = screen.getByText(/Engine Weights/i);
+        fireEvent.click(header);
         const slider = screen.getByLabelText(/Weight for G/i) as HTMLInputElement;
         fireEvent.change(slider, { target: { value: '0.30' } });
 

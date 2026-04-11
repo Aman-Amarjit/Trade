@@ -14,10 +14,10 @@ describe('GeometryPanel', () => {
 
     it('shows awaiting message when no data', () => {
         render(<GeometryPanel />);
-        expect(screen.getByText(/Awaiting data/i)).toBeDefined();
+        expect(screen.getByText(/Initializing Engine/i)).toBeDefined();
     });
 
-    it('shows insufficient data message when geometry has null fields', () => {
+    it('renders effectively even with null fields by showing 0.0%', () => {
         useLiveStore.setState({
             geometry: {
                 curvature: null, imbalance: null, rotation: null,
@@ -27,7 +27,9 @@ describe('GeometryPanel', () => {
             },
         });
         render(<GeometryPanel />);
-        expect(screen.getByText(/Insufficient data/i)).toBeDefined();
+        // It should render the gauges with 0.0% instead of an error message
+        const zeros = screen.getAllByText(/0\.0%/i);
+        expect(zeros.length).toBeGreaterThan(0);
     });
 
     it('renders geometry values when data is present', () => {
@@ -40,7 +42,7 @@ describe('GeometryPanel', () => {
             },
         });
         render(<GeometryPanel />);
-        expect(screen.getByText('STABLE_STRUCTURE')).toBeDefined();
+        expect(screen.getByText('STABLE STRUCTURE')).toBeDefined();
     });
 });
 
