@@ -1,102 +1,108 @@
-# Trade — Multi-Layer Analytical Architecture
+# 💎 Trade — Multi-Layer Analytical Architecture
 
-A high-performance, real-time analytics platform for market structure, breakout, and risk analysis.
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Aman-Amarjit/Trade/ci.yml?style=for-the-badge)](https://github.com/Aman-Amarjit/Trade/actions)
+[![Security Scan](https://img.shields.io/badge/Security-Hardened-success?style=for-the-badge)](SECURITY.md)
+[![License](https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-blue?style=for-the-badge&logo=node.js)](package.json)
 
-## Overview
+**Trade** is a high-performance, real-time analytics platform designed for deep market structure interpretation, breakout cycle detection, and institutional-grade risk management.
 
-This project includes:
-- **Backend**: Node.js + Express + TypeScript API serving market analytics.
-- **Frontend**: React + Vite dashboard with live analytics, breakout signals, and alerts.
-- **Shared types**: Common TypeScript contracts between backend and frontend.
+![Dashboard Mockup](./assets/dashboard_mockup.png)
 
-## Getting Started
+---
 
-### Install dependencies
+## 🚀 Key Features
+
+### 🧠 Core Engine Cluster
+- **Regime Intelligence**: Volatility regime detection and regime persistence tracking.
+- **Liquidity Mapping**: Dynamic tracking of Fair Value Gaps (FVG), stop clusters, and liquidity shelves.
+- **Geometry Classifier**: Real-time identification of market geometries and breakout cycles.
+- **Risk Sentinel**: Hard rejection logic, daily drawdown caps, and EDD calculation.
+
+### ⚡ Real-Time Pipeline
+- **Low-Latency Ingestion**: Multi-symbol support with staggered polling to avoid rate limits.
+- **Deterministic Replay**: Full CSV-based replay engine for backtesting and logic verification.
+- **Journaling System**: Persistent auditing of state transitions and risk rejections.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A[Public APIs / Data Adapters] --> B[Data Layer]
+    B --> C[Pipeline Orchestrator]
+    
+    subgraph "Analytical Engines"
+        C --> D[Context Engines]
+        C --> E[Structure Engines]
+        C --> F[Geometry Engines]
+    end
+    
+    D & E & F --> G[Scoring & Risk Manager]
+    G --> H[Final Decision / HUD Result]
+    
+    H --> I[Journaling / Audit Log]
+    H --> J[Express API Server]
+    J --> K[React Dashboard]
+```
+
+---
+
+## 🛡️ Security Architecture
+
+Built with a "Security First" mindset to protect both data and proprietary logic:
+
+- **Proprietary Core**: 100% of trading logic remains isolated on the backend.
+- **Hardened API**: Protected by `helmet`, strict `CORS`, rate limiting, and Bearer authentication.
+- **Sanitized Inputs**: Deep validation and sanitization of all incoming requests and market data.
+- **Vulnerability Management**: Continuous dependency auditing and path-based security checks.
+
+See [SECURITY.md](SECURITY.md) for full details.
+
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+
+- Node.js >= 18.0.0
+- NPM or PNPM
+
+### Installation
 
 ```bash
+# Install root dependencies (Backend)
 npm install
+
+# Install Frontend dependencies
 cd frontend
 npm install
 ```
 
-### Run locally
+### Development
 
-Backend:
-```bash
-npm run build
-npm start
-```
+| Side | Command | Description |
+| :--- | :--- | :--- |
+| **Backend** | `npm run dev` | Starts API with hot-reload |
+| **Frontend** | `npm run dev` | Starts Vite dashboard |
+| **Tests** | `npm test` | Runs Vitest suite |
 
-Frontend:
-```bash
-cd frontend
-npm run dev
-```
+---
 
-### Build for production
+## ⚙️ Configuration
 
-Backend:
-```bash
-npm run build
-```
+Copy `.env.example` to `.env` and configure your environment:
 
-Frontend:
-```bash
-cd frontend
-npm run build
-```
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `API_TOKEN` | Strong bearer token for API security | `dev-token` |
+| `ALLOWED_ORIGINS` | Permitted frontend domains (CORS) | `http://localhost:5173` |
+| `SYMBOLS` | Comma-separated assets to track | `BTC-USDT,ETH-USDT` |
+| `PORT` | Backend server port | `3000` |
 
-## Environment
+---
 
-Copy `.env.example` to `.env` and configure:
-- `API_TOKEN` — strong bearer token for API security
-- `ALLOWED_ORIGINS` — allowed frontend domains for CORS
-- `PORT` — backend server port
-- `SYMBOLS` — comma-separated assets
+## 📄 License
 
-Frontend also supports environment configuration with `frontend/.env`.
-
-## Testing
-
-```bash
-npm test
-```
-
-## Production Readiness Notes
-
-- UI now includes an `ErrorBoundary` to catch render failures.
-- Frontend hooks are updated with proper dependencies.
-- The dashboard polling effect avoids synchronous state updates.
-- Security headers and CORS are already configured in backend middleware.
-
-## Directory Structure
-
-- `src/` — backend implementation
-- `frontend/src/` — React dashboard
-- `shared/types/` — shared contracts
-- `logs/` — runtime logs
-
-## Deployment
-
-The repository includes a production-ready `Dockerfile`:
-- build stage compiles the app
-- runtime stage installs production dependencies
-- health check included on port `3000`
-
-## Continuous Integration / Deployment
-
-The project includes GitHub Actions workflows:
-- `.github/workflows/ci.yml` — backend/frontend build, lint, test, and audit
-- `.github/workflows/deploy.yml` — deploy backend to Railway and frontend to Netlify
-
-Secrets required for deployment are:
-- `RAILWAY_TOKEN`
-- `NETLIFY_AUTH_TOKEN`
-- `NETLIFY_SITE_ID`
-- `VITE_API_BASE_URL`
-- `VITE_API_TOKEN`
-- `VITE_SYMBOLS`
-
-## Production Readiness Checklist
-
-See `CHECKLIST.md` for a live status of readiness items, including build/test validation, health endpoint coverage, and operational next steps.
+Proprietary Software. All Rights Reserved. See [LICENSE](LICENSE) for details.
