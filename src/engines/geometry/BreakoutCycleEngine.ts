@@ -60,13 +60,23 @@ export const BreakoutCycleEngine: Engine<BreakoutCycleInput, BreakoutCycleOutput
         if (rh <= rl) return DEFAULT_OUTPUT;
         const rangeSize = rh - rl;
 
+        // Range contraction detection (Req 1.1, 1.2, 1.7)
         const insideRange = candles.filter(c => c.low >= rl && c.high <= rh);
-        const validRange = insideRange.length >= MIN_RANGE_CANDLES && insideRange.slice(-MAX_RANGE_CANDLES).length / MAX_RANGE_CANDLES > 0.7;
+        const validRange = insideRange.length >= MIN_RANGE_CANDLES && insideRange.length <= MAX_RANGE_CANDLES;
 
-        const rangeAtr = (insideRange.slice(-20).reduce((sum, c, i, arr) => {
-            if (i === 0) return 0;
-            return sum + (Math.max(c.high, arr[i - 1].high) - Math.min(c.low, arr[i - 1].low));
-        }, 0) / Math.max(1, insideRange.length - 1)) || atr;
+        // Compute range ATR using true range over last 20 inside-range candles
+        const rangeCandles = insideRange.slice(-20);
+        let rangeAtr = atr;
+        if (rangeCandles.length >= 2) {
+            const trSum = rangeCandles.reduce((sum, c, i, arr) => {
+                if (i === 0) return 0;
+                const prevHigh = arr[i - 1].high;
+                const prevLow = arr[i - 1].low;
+                const tr = Math.max(c.high, prevHigh) - Math.min(c.low, prevLow);
+                return sum + tr;
+            }, 0);
+            rangeAtr = trSum / (rangeCandles.length - 1);
+        }
         const atrShrunk = rangeAtr < atr * ATR_SHRINK_THRESHOLD;
 
         const recentBodies = insideRange.slice(-10).map(c => Math.abs(c.close - c.open));
@@ -77,6 +87,7 @@ export const BreakoutCycleEngine: Engine<BreakoutCycleInput, BreakoutCycleOutput
         const avgRecentVol = recentVols.reduce((a, b) => a + b, 0) / Math.max(recentVols.length, 1);
         const volStableOrDecline = avgRecentVol <= avgRangeVolume * 1.1;
 
+        // All four conditions must be true simultaneously (Req 1.2)
         if (validRange && atrShrunk && bodiesShrinking && volStableOrDecline) {
             return {
                 ...DEFAULT_OUTPUT,
@@ -132,21 +143,42 @@ export const BreakoutCycleEngine: Engine<BreakoutCycleInput, BreakoutCycleOutput
             }
         }
 
-        const retestCandidate = candles.slice(-5).find((c, idx, arr) => {
-            const prev = idx > 0 ? arr[idx - 1] : null;
+        // Retest detection (Req 3.1, 3.2, 3.3, 3.4)
+        const retestCandidate = candles.slice(-5).find((c) => {
             if (!breakoutDirection) return false;
-            const supports = breakoutDirection === 'LONG' ? c.low <= rh && c.close > rh : c.high >= rl && c.close < rl;
-            const wickRejection = breakoutDirection === 'LONG'
-                ? (c.high - c.close) / atr > 0.3
-                : (c.close - c.low) / atr > 0.3;
-            return supports && wickRejection && prev && ((breakoutDirection === 'LONG' && prev.close > rh) || (breakoutDirection === 'SHORT' && prev.close < rl));
+
+            if (breakoutDirection === 'LONG') {
+                const touchesRH = c.low <= rh;
+                const closesAboveRH = c.close > rh;
+                const wickRejection = (c.high - c.close) / atr > 0.3;
+
+                // Req 3.4: If fails to close back above RH, invalidate
+                if (touchesRH && !closesAboveRH) {
+                    invalidated = true;
+                    return false;
+                }
+
+                return touchesRH && closesAboveRH && wickRejection;
+            } else {
+                const touchesRL = c.high >= rl;
+                const closesBelowRL = c.close < rl;
+                const wickRejection = (c.close - c.low) / atr > 0.3;
+
+                // Req 3.4: If fails to close back below RL, invalidate
+                if (touchesRL && !closesBelowRL) {
+                    invalidated = true;
+                    return false;
+                }
+
+                return touchesRL && closesBelowRL && wickRejection;
+            }
         });
 
         if (retestCandidate && breakoutDirection) {
             rangeState = 'RETEST';
             const buffer = atr * RETEST_BUFFER_ATR;
             entry2 = breakoutDirection === 'LONG' ? rh + buffer : rl - buffer;
-            retestLevel = entry2;
+            retestLevel = entry2; // Req 3.3: retestLevel === entry2
         }
 
         if (rangeState === 'BREAKOUT' || rangeState === 'RETEST') {
@@ -162,10 +194,21 @@ export const BreakoutCycleEngine: Engine<BreakoutCycleInput, BreakoutCycleOutput
             }
         }
 
+        // Req 7.5: Enforce null-field rules for EXPANSION/CONTRACTION states
+        if (rangeState === 'EXPANSION' || rangeState === 'CONTRACTION') {
+            entry1 = null;
+            entry2 = null;
+            stopLoss = null;
+            tp1 = null;
+            tp2 = null;
+            retestLevel = null;
+            breakoutDirection = null;
+        }
+
         return {
             rangeState,
-            rh,
-            rl,
+            rh, // Req 7.2, 10.1: Always from marketStructure
+            rl, // Req 7.2, 10.2: Always from marketStructure
             breakoutDirection,
             breakoutLevel,
             entry1,

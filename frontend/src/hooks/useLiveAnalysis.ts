@@ -28,6 +28,7 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
     const prevClose = useRef<number | null>(null);
     const prevCollapseProb = useRef(0);
     const prevResistantCount = useRef(0);
+    const prevHighProbAlert = useRef(false);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -109,23 +110,37 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
 
                     const breakout = data.breakoutCycle;
                     if (breakout) {
-                        if (breakout.rangeState === 'BREAKOUT' && prevBreakoutState.current !== 'BREAKOUT') {
+                        // BREAKOUT DETECTED (Req 13.1)
+                        if (breakout.rangeState === 'BREAKOUT' && !breakout.invalidated && prevBreakoutState.current !== 'BREAKOUT') {
                             addAlert({ message: 'BREAKOUT DETECTED', severity: 'info', timestamp: ts, expiresAt: expire });
                         }
-                        if (breakout.retestLevel != null && prevRetestLevel.current == null) {
+                        // RETEST AVAILABLE (Req 13.2)
+                        if (breakout.retestLevel != null && !breakout.invalidated && prevRetestLevel.current == null) {
                             addAlert({ message: 'RETEST AVAILABLE', severity: 'info', timestamp: ts, expiresAt: expire });
                         }
-                        if (breakout.stopLoss != null && prevStopLoss.current !== breakout.stopLoss) {
+                        // STOP LOSS UPDATE (Req 13.3)
+                        if (breakout.stopLoss != null && prevStopLoss.current !== breakout.stopLoss && (breakout.rangeState === 'BREAKOUT' || breakout.rangeState === 'RETEST')) {
                             addAlert({ message: 'STOP LOSS UPDATE', severity: 'warning', timestamp: ts, expiresAt: expire });
                         }
-                        if (breakout.tp1 != null && prevClose.current != null && prevClose.current < breakout.tp1 && data.currentPrice >= breakout.tp1) {
-                            addAlert({ message: 'TP1 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                        // TP1 HIT (Req 13.4, 13.5)
+                        if (breakout.tp1 != null && prevClose.current != null) {
+                            if (breakout.breakoutDirection === 'LONG' && prevClose.current < breakout.tp1 && data.currentPrice >= breakout.tp1) {
+                                addAlert({ message: 'TP1 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                            } else if (breakout.breakoutDirection === 'SHORT' && prevClose.current > breakout.tp1 && data.currentPrice <= breakout.tp1) {
+                                addAlert({ message: 'TP1 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                            }
                         }
-                        if (breakout.tp2 != null && prevClose.current != null && prevClose.current < breakout.tp2 && data.currentPrice >= breakout.tp2) {
-                            addAlert({ message: 'TP2 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                        // TP2 HIT (Req 13.6, 13.7)
+                        if (breakout.tp2 != null && prevClose.current != null) {
+                            if (breakout.breakoutDirection === 'LONG' && prevClose.current < breakout.tp2 && data.currentPrice >= breakout.tp2) {
+                                addAlert({ message: 'TP2 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                            } else if (breakout.breakoutDirection === 'SHORT' && prevClose.current > breakout.tp2 && data.currentPrice <= breakout.tp2) {
+                                addAlert({ message: 'TP2 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                            }
                         }
+                        // BREAKOUT INVALIDATED (Req 13.8)
                         if (breakout.invalidated && !prevInvalidated.current) {
-                            addAlert({ message: 'BREAKOUT INVALIDATED', severity: 'warning', timestamp: ts, expiresAt: expire });
+                            addAlert({ message: 'BREAKOUT INVALIDATED', severity: 'critical', timestamp: ts, expiresAt: expire });
                         }
                         prevBreakoutState.current = breakout.rangeState;
                         prevRetestLevel.current = breakout.retestLevel;
@@ -135,6 +150,13 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                         prevInvalidated.current = breakout.invalidated;
                     }
                     prevClose.current = data.currentPrice;
+
+                    // Standalone high-probability alert (Req 11.1, 11.2, 11.3)
+                    const highProb = data.scoring.probability >= 80 && !data.risk.hardReject;
+                    if (highProb && !prevHighProbAlert.current) {
+                        addAlert({ message: `High-probability setup detected — ${data.scoring.probability.toFixed(1)}%`, severity: 'info', timestamp: ts, expiresAt: expire });
+                    }
+                    prevHighProbAlert.current = highProb;
 
                     // Volatility regime change
                     const newRegime = data.risk.volatilityRegime;

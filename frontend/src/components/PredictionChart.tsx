@@ -128,11 +128,11 @@ export function PredictionChart(): React.ReactElement {
                 <span className={`chart-change ${isUp ? 'up' : 'down'}`}>
                     {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
                 </span>
-                <span className="align-indicator-badge" style={{ 
-                    fontSize: '11px', fontWeight: 700, color: alignColor, 
-                    marginLeft: '8px', padding: '2px 8px', borderRadius: '20px', 
+                <span className="align-indicator-badge" style={{
+                    fontSize: '11px', fontWeight: 700, color: alignColor,
+                    marginLeft: '8px', padding: '2px 8px', borderRadius: '20px',
                     background: lastSmoothed >= 0.7 ? 'rgba(0, 200, 83, 0.15)' : lastSmoothed >= 0.4 ? 'rgba(255, 179, 0, 0.15)' : 'rgba(211, 47, 47, 0.15)',
-                    border: `1px solid ${alignColor}` 
+                    border: `1px solid ${alignColor}`
                 }}>
                     {alignLabel}
                 </span>
@@ -274,6 +274,51 @@ export function PredictionChart(): React.ReactElement {
                             </g>
                         );
                     });
+                })()}
+
+                {/* Breakout Arrow Marker (Req 12.1) */}
+                {breakoutCycle && breakoutCycle.rangeState === 'BREAKOUT' && !breakoutCycle.invalidated && breakoutCycle.breakoutLevel != null && (() => {
+                    const yNorm = normalizePrice(breakoutCycle.breakoutLevel);
+                    if (yNorm === null) return null;
+                    const y = scaleY(yNorm, minY, maxY);
+                    if (y < topY || y > bottomY) return null;
+
+                    const x = W - PAD.right - 60;
+                    const isLong = breakoutCycle.breakoutDirection === 'LONG';
+                    const arrowColor = isLong ? 'var(--success)' : 'var(--error)';
+
+                    // Triangle arrow pointing up (LONG) or down (SHORT)
+                    const arrowPath = isLong
+                        ? `M${x},${y} L${x - 6},${y + 10} L${x + 6},${y + 10} Z`
+                        : `M${x},${y} L${x - 6},${y - 10} L${x + 6},${y - 10} Z`;
+
+                    return (
+                        <g>
+                            <polygon points={arrowPath.replace(/[MLZ]/g, '').trim()}
+                                fill={arrowColor} stroke="white" strokeWidth="1.5"
+                                opacity="0.9" />
+                        </g>
+                    );
+                })()}
+
+                {/* Retest Marker (Req 12.2) */}
+                {breakoutCycle && breakoutCycle.rangeState === 'RETEST' && !breakoutCycle.invalidated && breakoutCycle.retestLevel != null && (() => {
+                    const yNorm = normalizePrice(breakoutCycle.retestLevel);
+                    if (yNorm === null) return null;
+                    const y = scaleY(yNorm, minY, maxY);
+                    if (y < topY || y > bottomY) return null;
+
+                    const x = W - PAD.right - 60;
+
+                    return (
+                        <g>
+                            <circle cx={x} cy={y} r="8"
+                                fill="none" stroke="var(--accent)" strokeWidth="2.5"
+                                opacity="0.9" />
+                            <circle cx={x} cy={y} r="3"
+                                fill="var(--accent)" opacity="0.9" />
+                        </g>
+                    );
                 })()}
 
                 {/* Liquidity attractor markers — simplified to margin dots to reduce noise */}
