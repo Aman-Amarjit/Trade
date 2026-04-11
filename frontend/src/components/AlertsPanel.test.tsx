@@ -1,8 +1,9 @@
 // Unit tests for AlertsPanel
 // Requirements: 27.4
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import '@testing-library/jest-dom'; // Fix for toBeInTheDocument type error
 import React from 'react';
 import { AlertsPanel } from './AlertsPanel.js';
 import { useLiveStore } from '../state/liveStore.js';
@@ -15,7 +16,14 @@ describe('AlertsPanel', () => {
                 alerts: [],
                 isStale: false,
                 isReplayMode: false,
-                state: { state: 'IDLE', reason: 'System initialized' },
+                state: { 
+                    state: 'IDLE', 
+                    previousState: null,
+                    timestamp: new Date().toISOString(),
+                    reason: 'System initialized',
+                    cooldownRemaining: 0,
+                    alignmentScore: 0
+                },
                 risk: { hardReject: false, rejectReasons: [], probability: 0, edd: 0, stopDistance: 0, targetDistance: 0, ev: 0 } as any
             });
         });
@@ -30,7 +38,14 @@ describe('AlertsPanel', () => {
         act(() => {
             useLiveStore.setState({
                 geometry: { geometryRegime: 'STABLE STRUCTURE' } as any,
-                state: { state: 'COOLDOWN', reason: 'Ready' } as any
+                state: { 
+                    state: 'COOLDOWN', 
+                    previousState: 'IDLE',
+                    timestamp: new Date().toISOString(),
+                    reason: 'Ready',
+                    cooldownRemaining: 30,
+                    alignmentScore: 0.5
+                }
             });
         });
 
@@ -42,7 +57,14 @@ describe('AlertsPanel', () => {
     it('displays ACTIVE status when state machine is ACTIVE', async () => {
         act(() => {
             useLiveStore.setState({
-                state: { state: 'IN_TRADE', reason: 'High alignment' } as any
+                state: { 
+                    state: 'IN_TRADE', 
+                    previousState: 'WAITING_FOR_RETEST',
+                    timestamp: new Date().toISOString(),
+                    reason: 'High alignment',
+                    cooldownRemaining: 0,
+                    alignmentScore: 0.95
+                }
             });
         });
 
