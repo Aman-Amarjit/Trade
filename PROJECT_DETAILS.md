@@ -39,7 +39,7 @@ The "brain" of the project is the **Pipeline Orchestrator**, which executes 15+ 
 | **1** | **Context** | Determines the "Global Environment" (Stress, Macro Bias, Volatility Regime, Session Type). |
 | **2** | **Structure** | Identifies the "Battlefield" (Market Structure Swings, Liquidity Zones, Premium/Discount zones). |
 | **3** | **Geometry** | Analyzes "Price Action" (Curvature, Imbalance, Micro-structure alignment, Orderflow pressure). |
-| **4** | **Decision** | Synthesizes insights into "Actionable Data" (Predictive scoring, Risk management, State machine). |
+| **4** | **Decision** | Synthesizes insights into "Actionable Data" (Predictive scoring, Risk management, Daily Drawdown Tracking, State machine). |
 
 ---
 
@@ -64,8 +64,9 @@ The system leverages a diverse set of engines, each responsible for a specific d
 ### Decision & Risk Layer
 - **PredictionEngine**: Uses weighted coefficients (G, L, V, M, O, X) to forecast future price movement.
 - **ScoringEngine**: Provides a probability-based score for potential trade setups.
-- **RiskManager**: Calculates EDD (Expected DrawDown), EV (Expected Value), and optimal stop/target distances.
-- **StateMachine**: Manage the lifecycle of an "IDLE" vs "ACTIVE" vs "COOLDOWN" state.
+- **RiskManager**: Calculates EDD (Expected DrawDown), EV (Expected Value), and enforces the Section 8.4 Daily Drawdown Cap.
+- **BreakoutCycleEngine**: Implements the V4.0 Patch for range-retest entries/exits.
+- **StateMachine**: Managed the lifecycle of an "IDLE" vs "ACTIVE" vs "COOLDOWN" state.
 
 ---
 
