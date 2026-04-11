@@ -78,59 +78,51 @@ export const PredictionEngine: Engine<PredictionInput, PredictionOutput> = {
         // Formula 11/28 — StrictLine
         const rawStrictLine = w1 * G + w2 * L + w3 * V + w4 * M + w5 * O + w6 * X;
 
-        // Formula 12/30 — LiquidityBias
+        // Formula 12/30 — LiquidityBias (added to strict line per spec)
         const liquidityBias = Math.min(1, attractorStrength / (distanceToPrice + 0.1));
+        const strictLine = Math.max(0, Math.min(1, rawStrictLine + liquidityBias));
 
-        // atrNorm — ATR as fraction of price, scaled to prediction space [0,1]
-        // PDF Formula 13: Band_k = StrictLine ± (ATR × k)
-        // Since StrictLine is [0,1] and ATR is in USD, we normalize:
-        // atrNorm = ATR / (ATR + distanceToPrice × 1000) clamped to [0.02, 0.12]
-        // This gives meaningful band width proportional to volatility
-        const atrNorm = Math.min(Math.max(atr / (atr + distanceToPrice * 1000), 0.02), 0.12);
+        // Normalize ATR for band construction while keeping it bounded
+        const atrNorm = Math.min(Math.max(atr / (atr + 1000), 0.02), 0.12);
 
-        // Session adjustment (Spec 7.10) — applied first so all outputs are consistent
+        // Session adjustment applies to derived expectations, not the raw strict line
         const sessionFactor = SESSION_FACTORS[sessionType] ?? 1.0;
-        const strictLine = rawStrictLine * sessionFactor;
+        const adjustedLine = Math.max(0, Math.min(1, strictLine * sessionFactor));
 
-        // Formula 14/32 — MinMax zone — centered on session-adjusted strictLine
+        // Formula 14/32 — MinMax zone
         const Vf = Math.max(1.0, Math.min(2.5, volatilityFactor));
-        const min = Math.max(0, strictLine - Vf * atrNorm);
-        const max = Math.min(1, strictLine + Vf * atrNorm);
+        const min = Math.max(0, adjustedLine - Vf * atrNorm);
+        const max = Math.min(1, adjustedLine + Vf * atrNorm);
 
-        // Confidence bands — centered on session-adjusted strictLine
+        // Confidence bands — formula 13
         const band50: [number, number] = [
-            Math.max(0, strictLine - atrNorm * 0.5),
-            Math.min(1, strictLine + atrNorm * 0.5),
+            Math.max(0, adjustedLine - atrNorm * 0.5),
+            Math.min(1, adjustedLine + atrNorm * 0.5),
         ];
         const band80: [number, number] = [
-            Math.max(0, strictLine - atrNorm * 1.0),
-            Math.min(1, strictLine + atrNorm * 1.0),
+            Math.max(0, adjustedLine - atrNorm * 1.0),
+            Math.min(1, adjustedLine + atrNorm * 1.0),
         ];
         const band95: [number, number] = [
-            Math.max(0, strictLine - atrNorm * 1.5),
-            Math.min(1, strictLine + atrNorm * 1.5),
+            Math.max(0, adjustedLine - atrNorm * 1.5),
+            Math.min(1, adjustedLine + atrNorm * 1.5),
         ];
 
-        // Formula 15/33 — Temporal smoothing (on session-adjusted value)
-        // Low alpha = slow EMA = smooth graph. Prevents sawtooth from cycle-to-cycle noise.
-        // HIGH_PERSISTENCE: alpha=0.08 (~12 cycle half-life)
-        // MEDIUM_PERSISTENCE: alpha=0.06 (~16 cycle half-life)
-        // LOW_PERSISTENCE: alpha=0.04 (~25 cycle half-life)
-        const alpha = regimePersistence === 'HIGH_PERSISTENCE' ? 0.08
-            : regimePersistence === 'MEDIUM_PERSISTENCE' ? 0.06
-                : 0.04;
-        const smoothed = alpha * strictLine + (1 - alpha) * (previousSmoothed ?? strictLine);
+        // Formula 15/33 — Temporal smoothing
+        const alpha = regimePersistence === 'HIGH_PERSISTENCE' ? 0.4
+            : regimePersistence === 'MEDIUM_PERSISTENCE' ? 0.3
+                : 0.2;
+        const smoothed = alpha * adjustedLine + (1 - alpha) * (previousSmoothed ?? adjustedLine);
 
-        // Formula 16/34 — Signal decay (on session-adjusted value)
-        // "SignalStrength" in the spec refers to the current strictLine value.
-        // decayed = strictLine × e^(-signalAge/T)
-        // This represents how much the current prediction would weaken if the signal is old.
-        // signalAge increments each pipeline cycle; T is derived from volatility regime.
-        const T = Math.max(20, Math.min(40, decayHalfLife));
-        const decayed = strictLine * Math.exp(-signalAge / T);
+        // Formula 16/34 — Signal decay
+        const T = volatilityRegime === 'LOW' ? 40
+            : volatilityRegime === 'NORMAL' ? 35
+                : volatilityRegime === 'HIGH' ? 25
+                    : 20;
+        const decayed = adjustedLine * Math.exp(-signalAge / T);
 
-        // Volatility adjustment
-        const volatilityAdjustment = atr * assetVolatilityProfile;
+        // Volatility adjustment output represents volatility-driven sensitivity
+        const volatilityAdjustment = atrNorm * assetVolatilityProfile * sessionFactor;
 
         return {
             strictLine,

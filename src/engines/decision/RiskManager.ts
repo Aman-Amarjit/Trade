@@ -7,19 +7,23 @@ import type {
     ScoringOutput,
     StressState,
     VolatilityRegime,
+    BreakoutCycleOutput,
 } from '../../../shared/types/index.js';
 
 export interface RiskInput {
     scoring: ScoringOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
+    breakoutCycle?: BreakoutCycleOutput;
     volatilityRegime: VolatilityRegime;
     globalStress: StressState;
     atr: number;
     volatilityFactor: number;
     stopMultiplier: number;
-    targetMultiplier: number;
     eddThreshold: number;
+    currentPrice: number;
+    dailyDrawdown: number;
+    dailyDrawdownCap: number;
 }
 
 export const RiskManager: Engine<RiskInput, RiskOutput> = {
@@ -31,11 +35,15 @@ export const RiskManager: Engine<RiskInput, RiskOutput> = {
             return { type: 'VALIDATION', message: 'Input is null or undefined', recoverable: false };
         }
 
-        const { scoring, geometry, microstructure, volatilityRegime, globalStress,
-            atr, volatilityFactor, stopMultiplier, targetMultiplier, eddThreshold } = input;
+        const { scoring, geometry, microstructure, breakoutCycle, volatilityRegime, globalStress,
+            atr, volatilityFactor, stopMultiplier, targetMultiplier, eddThreshold, currentPrice,
+            dailyDrawdown, dailyDrawdownCap } = input;
 
         if (atr <= 0) {
             return { type: 'VALIDATION', message: `atr must be > 0, got ${atr}`, recoverable: false };
+        }
+        if (currentPrice <= 0) {
+            return { type: 'VALIDATION', message: `currentPrice must be > 0, got ${currentPrice}`, recoverable: false };
         }
 
         // Clamp parameters
@@ -78,6 +86,17 @@ export const RiskManager: Engine<RiskInput, RiskOutput> = {
         if (edd > eddThreshold) {
             rejectReasons.push(`EDD ${edd.toFixed(4)} exceeds threshold ${eddThreshold}`);
         }
+        if (dailyDrawdown + edd > dailyDrawdownCap) {
+            rejectReasons.push(`Daily drawdown cap reached (Current: ${dailyDrawdown.toFixed(2)} + EDD: ${edd.toFixed(2)} > Cap: ${dailyDrawdownCap})`);
+        }
+
+        const predictedProfitPercent = targetDistance / currentPrice * 100;
+        const estimatedFeesPercent = 0.2;
+        const feeAwareNetProfit = predictedProfitPercent - estimatedFeesPercent;
+
+        if (feeAwareNetProfit < 3) {
+            rejectReasons.push(`Fee-aware net profit ${feeAwareNetProfit.toFixed(2)}% is below 3% threshold`);
+        }
 
         const hardReject = rejectReasons.length > 0;
 
@@ -93,6 +112,9 @@ export const RiskManager: Engine<RiskInput, RiskOutput> = {
             microstructureComplete,
             hardReject,
             rejectReasons,
+            feeAwareNetProfit,
+            dailyDrawdown,
+            dailyDrawdownCap,
         };
     },
 };

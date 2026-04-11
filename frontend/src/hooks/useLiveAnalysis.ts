@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useLiveStore } from '../state/liveStore';
-import type { LiveAnalysisResponse } from '../types/index';
+import type { LiveAnalysisResponse, RangeState } from '../types/index';
 import { playBOS, playSweep, playRegimeChange, playStressChange, playCollapseWarning, playRetestZone } from '../utils/sounds';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
@@ -19,6 +19,13 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
     const prevSweep = useRef(false);
     const prevBos = useRef(false);
     const prevRetestZone = useRef(false);
+    const prevBreakoutState = useRef<RangeState | null>(null);
+    const prevRetestLevel = useRef<number | null>(null);
+    const prevInvalidated = useRef(false);
+    const prevStopLoss = useRef<number | null>(null);
+    const prevTp1 = useRef<number | null>(null);
+    const prevTp2 = useRef<number | null>(null);
+    const prevClose = useRef<number | null>(null);
     const prevCollapseProb = useRef(0);
     const prevResistantCount = useRef(0);
 
@@ -66,7 +73,12 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                         liquidity: data.liquidity,
                         geometry: data.geometry,
                         microstructure: data.microstructure,
+                        breakoutCycle: data.breakoutCycle ?? null,
                         scoring: data.scoring,
+                        engineRate: data.engineRate ?? null,
+                        rejectionRatio: data.rejectionRatio ?? null,
+                        dailyDrawdown: data.dailyDrawdown,
+                        dailyDrawdownCap: data.dailyDrawdownCap,
                         timestamp: data.timestamp,
                     });
 
@@ -94,6 +106,35 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
                         playRetestZone();
                     }
                     prevRetestZone.current = data.microstructure.retestZone;
+
+                    const breakout = data.breakoutCycle;
+                    if (breakout) {
+                        if (breakout.rangeState === 'BREAKOUT' && prevBreakoutState.current !== 'BREAKOUT') {
+                            addAlert({ message: 'BREAKOUT DETECTED', severity: 'info', timestamp: ts, expiresAt: expire });
+                        }
+                        if (breakout.retestLevel != null && prevRetestLevel.current == null) {
+                            addAlert({ message: 'RETEST AVAILABLE', severity: 'info', timestamp: ts, expiresAt: expire });
+                        }
+                        if (breakout.stopLoss != null && prevStopLoss.current !== breakout.stopLoss) {
+                            addAlert({ message: 'STOP LOSS UPDATE', severity: 'warning', timestamp: ts, expiresAt: expire });
+                        }
+                        if (breakout.tp1 != null && prevClose.current != null && prevClose.current < breakout.tp1 && data.currentPrice >= breakout.tp1) {
+                            addAlert({ message: 'TP1 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                        }
+                        if (breakout.tp2 != null && prevClose.current != null && prevClose.current < breakout.tp2 && data.currentPrice >= breakout.tp2) {
+                            addAlert({ message: 'TP2 HIT', severity: 'info', timestamp: ts, expiresAt: expire });
+                        }
+                        if (breakout.invalidated && !prevInvalidated.current) {
+                            addAlert({ message: 'BREAKOUT INVALIDATED', severity: 'warning', timestamp: ts, expiresAt: expire });
+                        }
+                        prevBreakoutState.current = breakout.rangeState;
+                        prevRetestLevel.current = breakout.retestLevel;
+                        prevStopLoss.current = breakout.stopLoss;
+                        prevTp1.current = breakout.tp1;
+                        prevTp2.current = breakout.tp2;
+                        prevInvalidated.current = breakout.invalidated;
+                    }
+                    prevClose.current = data.currentPrice;
 
                     // Volatility regime change
                     const newRegime = data.risk.volatilityRegime;
@@ -159,6 +200,6 @@ export function useLiveAnalysis(symbol: string, timeframe: string, token: string
             mountedRef.current = false;
             if (timerRef.current) clearTimeout(timerRef.current);
         };
-    }, [symbol, timeframe, token, isReplayMode]);
+    }, [symbol, timeframe, token, isReplayMode, setLiveData, incrementFailures, addAlert]);
 }
 

@@ -9,6 +9,7 @@ import type {
     LiquidityMapOutput,
     GeometryOutput,
     MicrostructureOutput,
+    BreakoutCycleOutput,
 } from '../types/index';
 
 export interface ScoringOutput {
@@ -31,6 +32,7 @@ export interface LiveStore {
     liquidity: LiquidityMapOutput | null;
     geometry: GeometryOutput | null;
     microstructure: MicrostructureOutput | null;
+    breakoutCycle: BreakoutCycleOutput | null;
     scoring: ScoringOutput | null;
     alerts: Alert[];
     isStale: boolean;
@@ -40,6 +42,10 @@ export interface LiveStore {
     activeSymbol: string;
     predictionHistory: Array<{ strictLine: number; smoothed: number; timestamp: string }>;
     priceHistory: Array<{ price: number; timestamp: string }>;
+    engineRate: number | null;
+    rejectionRatio: number | null;
+    dailyDrawdown: number;
+    dailyDrawdownCap: number;
 
     // Actions
     setLiveData: (data: {
@@ -49,7 +55,12 @@ export interface LiveStore {
         liquidity: LiquidityMapOutput;
         geometry: GeometryOutput;
         microstructure: MicrostructureOutput;
+        breakoutCycle: BreakoutCycleOutput | null;
         scoring: ScoringOutput;
+        engineRate: number | null;
+        rejectionRatio: number | null;
+        dailyDrawdown: number;
+        dailyDrawdownCap: number;
         timestamp: string;
     }) => void;
     incrementFailures: () => void;
@@ -69,6 +80,7 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     liquidity: null,
     geometry: null,
     microstructure: null,
+    breakoutCycle: null,
     scoring: null,
     alerts: [],
     isStale: false,
@@ -78,6 +90,10 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
     activeSymbol: '',
     predictionHistory: [],
     priceHistory: [],
+    engineRate: null,
+    rejectionRatio: null,
+    dailyDrawdown: 0,
+    dailyDrawdownCap: 0,
 
     setLiveData: (data) => set((s) => {
         const newPoint = {
@@ -99,12 +115,17 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
             liquidity: data.liquidity,
             geometry: data.geometry,
             microstructure: data.microstructure,
+            breakoutCycle: data.breakoutCycle,
             scoring: data.scoring,
             lastUpdated: data.timestamp,
             isStale: false,
             consecutiveFailures: 0,
             predictionHistory: history,
             priceHistory,
+            engineRate: data.engineRate ?? null,
+            rejectionRatio: data.rejectionRatio ?? null,
+            dailyDrawdown: data.dailyDrawdown,
+            dailyDrawdownCap: data.dailyDrawdownCap,
         };
     }),
 
@@ -140,9 +161,14 @@ export const useLiveStore = create<LiveStore>((set, get) => ({
         liquidity: null,
         geometry: null,
         microstructure: null,
+        breakoutCycle: null,
         scoring: null,
         predictionHistory: [],
         priceHistory: [],
+        engineRate: null,
+        rejectionRatio: null,
+        dailyDrawdown: 0,
+        dailyDrawdownCap: 0,
         lastUpdated: null,
         isStale: false,
         consecutiveFailures: 0,

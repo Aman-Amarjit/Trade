@@ -11,6 +11,7 @@ const pct = (v: number | null | undefined) =>
 export function PredictionGraph(): React.ReactElement {
     const prediction = useLiveStore(s => s.prediction);
     const liquidity = useLiveStore(s => s.liquidity);
+    const breakoutCycle = useLiveStore(s => s.breakoutCycle);
     const [showBands, setShowBands] = useState(true);
 
     if (!prediction) {
@@ -66,6 +67,27 @@ export function PredictionGraph(): React.ReactElement {
                 <span className="label">Min / Max Zone</span>
                 <span className="value">{pct(min)} – {pct(max)}</span>
             </div>
+
+            {breakoutCycle && (
+                <div className="panel breakout-summary-panel" style={{ margin: '12px 0', padding: '12px', border: '1px solid var(--border2)', borderRadius: '12px', background: 'var(--surface2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span className="stat-label">Range Context</span>
+                        <span style={{ fontWeight: 700, color: breakoutCycle.invalidated ? 'var(--red)' : '#00c853' }}>
+                            {breakoutCycle.invalidated ? 'INVALIDATED' : breakoutCycle.rangeState}
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                        <div><span className="label">Directional bias</span><br /><strong>{breakoutCycle.breakoutDirection === 'LONG' ? 'Up' : breakoutCycle.breakoutDirection === 'SHORT' ? 'Down' : 'Neutral'}</strong></div>
+                        <div><span className="label">Entry 1</span><br /><strong>{breakoutCycle.entry1 ?? '—'}</strong></div>
+                        <div><span className="label">Entry 2</span><br /><strong>{breakoutCycle.entry2 ?? '—'}</strong></div>
+                        <div><span className="label">Stop loss</span><br /><strong>{breakoutCycle.stopLoss ?? '—'}</strong></div>
+                        <div><span className="label">TP1</span><br /><strong>{breakoutCycle.tp1 ?? '—'}</strong></div>
+                        <div><span className="label">TP2</span><br /><strong>{breakoutCycle.tp2 ?? '—'}</strong></div>
+                        <div><span className="label">Range high</span><br /><strong>{breakoutCycle.rh}</strong></div>
+                        <div><span className="label">Range low</span><br /><strong>{breakoutCycle.rl}</strong></div>
+                    </div>
+                </div>
+            )}
 
             {/* Collapsible volatility envelopes */}
             <div>

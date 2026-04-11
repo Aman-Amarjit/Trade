@@ -5,6 +5,8 @@ import type {
     VolatilityRegime,
     MarketStructureOutput,
     TrendClassification,
+    RangeState,
+    BreakoutDirection,
 } from '../../../shared/types/index.js';
 
 export interface MarketStructureInput {
@@ -150,6 +152,17 @@ export const MarketStructureContextEngine: Engine<MarketStructureInput, MarketSt
             }
         }
 
+        const currentClose = candles[candles.length - 1].close;
+        const lastExternalHigh = externalSwings.filter(s => s.type === 'HIGH').slice(-1)[0];
+        const lastExternalLow = externalSwings.filter(s => s.type === 'LOW').slice(-1)[0];
+        const rh = lastExternalHigh?.price ?? overallHigh;
+        const rl = lastExternalLow?.price ?? overallLow;
+
+        const rangeState: RangeState = currentClose >= rl && currentClose <= rh ? 'CONTRACTION' : 'EXPANSION';
+        const breakoutDirection = currentClose > rh && trend === 'UP' ? 'LONG'
+            : currentClose < rl && trend === 'DOWN' ? 'SHORT'
+                : null;
+
         return {
             internalSwings,
             externalSwings,
@@ -157,6 +170,11 @@ export const MarketStructureContextEngine: Engine<MarketStructureInput, MarketSt
             premiumZone,
             discountZone,
             structureBounds,
+            rangeState,
+            rh,
+            rl,
+            breakoutDirection,
         };
     },
 };
+

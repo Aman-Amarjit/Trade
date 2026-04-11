@@ -60,9 +60,8 @@ Kraken API (live market data — no API key required)
 12. OrderflowEngine — delta, CVD, absorption, bid/ask pressure
 
 **Decision Engines** — synthesize everything
-13. PredictionEngine — alignment score (0–1), volatility envelopes, min/max zone
-14. ScoringEngine — unified probability score (0–100) with per-engine contributions
-15. RiskManager — EDD, hard reject conditions, safety constraints
+15. RiskManager — EDD, hard reject conditions, daily drawdown cap (Section 8.4)
+16. BreakoutCycleEngine — range-cycle entries/exits (V4.0 Patch)
 
 Plus: StateMachine — IDLE / WAITING_FOR_RETEST / HIGH_ALIGNMENT / COOLDOWN
 
@@ -139,7 +138,8 @@ Copy `.env.example` to `.env`:
 | `TIMEFRAME` | no | `1m` | Candle timeframe: `1m`, `5m`, `15m`, `1h`, `4h`, `1d` |
 | `ALLOWED_ORIGINS` | YES (prod) | — | CORS whitelist. Your frontend URL e.g. `https://your-app.netlify.app` |
 | `LOG_DIR` | no | `./logs` | Directory for persistent journal log files |
-| `RATE_LIMIT_RPM` | no | `120` | Requests per minute per IP (120 supports 3-symbol multi-asset polling) |
+| `RATE_LIMIT_RPM` | no | `120` | Requests per minute per IP |
+| `DAILY_DRAWDOWN_CAP` | no | `1000` | Section 8.4 — Max allowed drawdown in USD/Asset units before STRESS: HALT |
 | `REPLAY_CSV_PATH` | no | — | Path to CSV for replay mode. Format: `timestamp,open,high,low,close,volume` |
 | `TLS_CERT_PATH` | no | — | TLS certificate path (leave blank if host handles TLS) |
 | `TLS_KEY_PATH` | no | — | TLS private key path |
@@ -344,7 +344,9 @@ Full pipeline result for one symbol.
     "geometryStable": true,
     "microstructureComplete": false,
     "hardReject": true,
-    "rejectReasons": ["Probability 42.30 is below threshold of 80"]
+    "rejectReasons": ["Daily Drawdown $1050.00 exceeds cap of $1000.00"],
+    "dailyDrawdown": 1050.00,
+    "dailyDrawdownCap": 1000.00
   },
   "state": {
     "state": "IDLE",
@@ -470,7 +472,7 @@ Exceeded: `HTTP 429`, `Retry-After: 60`.
 | Geometry Panel | Curvature, imbalance, rotation, collapse/breakout probability, geometry regime, micro-state |
 | Microstructure Panel | Sweep, BOS, divergence, CVD divergence, retest zone, HTF alignment, alignment score |
 | Alerts Panel | Sweep detected, BOS confirmed, retest available, regime changes, stress changes, collapse warnings |
-| Multi-Asset Dashboard | All tracked symbols — probability, EDD, regime, stress, state. Click any card to switch the HUD |
+| Dashboard Summary Table | Section 9.9 — All tracked symbols (Symbol, Align, Stress, Profit, Action). High-density compliance table |
 | Replay Panel | Activate replay mode, step forward, seek to candle index |
 
 ---

@@ -30,19 +30,27 @@ export function PredictionChart(): React.ReactElement {
     const prediction = useLiveStore(s => s.prediction);
     const geometry = useLiveStore(s => s.geometry);
     const liquidity = useLiveStore(s => s.liquidity);
+    const breakoutCycle = useLiveStore(s => s.breakoutCycle);
 
     const lineColor = (() => {
-        if (!geometry) return '#00c853';
+        if (!geometry) return 'var(--success)';
         const regime = geometry.geometryRegime;
         const micro = geometry.microState ?? '';
         const dir = micro.split('-')[0];
-        if (regime === 'COLLAPSING_STRUCTURE') return '#d32f2f';
-        if (regime === 'EXPANDING_STRUCTURE') return dir === 'down' ? '#d32f2f' : '#00c853';
-        if (regime === 'CHAOTIC_STRUCTURE') return '#ffb300';
-        return '#00c853';
+        if (regime === 'COLLAPSING_STRUCTURE') return 'var(--error)';
+        if (regime === 'EXPANDING_STRUCTURE') return dir === 'down' ? 'var(--error)' : 'var(--success)';
+        if (regime === 'CHAOTIC_STRUCTURE') return 'var(--warning)';
+        return 'var(--success)';
     })();
 
+
     const regimeLabel = geometry?.geometryRegime?.replace('_STRUCTURE', '') ?? 'STABLE';
+    const breakoutLabel = breakoutCycle
+        ? breakoutCycle.invalidated ? 'INVALIDATED' : breakoutCycle.rangeState === 'BREAKOUT' ? `${breakoutCycle.breakoutDirection ?? ''} BREAKOUT` : breakoutCycle.rangeState === 'RETEST' ? 'RETEST AVAILABLE' : breakoutCycle.rangeState
+        : 'NO BREAKOUT';
+    const breakoutColor = breakoutCycle
+        ? breakoutCycle.invalidated ? '#d32f2f' : breakoutCycle.rangeState === 'BREAKOUT' ? '#00c853' : '#ffb300'
+        : '#999';
 
     if (predHistory.length < 2) {
         return (
@@ -53,26 +61,16 @@ export function PredictionChart(): React.ReactElement {
     }
 
     const n = predHistory.length;
-    const strictValues = predHistory.map(p => p.strictLine);
     const smoothedValues = predHistory.map(p => p.smoothed);
 
     // Always show full 0–1 range so zones are meaningful
     // But zoom in if data is tightly clustered
-    const dataMin = Math.min(...strictValues, ...smoothedValues);
-    const dataMax = Math.max(...strictValues, ...smoothedValues);
-    const dataRange = dataMax - dataMin;
 
     // Always show a minimum 30% window so small oscillations don't look huge
     // If data spans less than 30%, center it with padding
-    let minY: number, maxY: number;
-    if (dataRange < 0.30) {
-        const center = (dataMin + dataMax) / 2;
-        minY = Math.max(0, center - 0.18);
-        maxY = Math.min(1, center + 0.18);
-    } else {
-        minY = Math.max(0, dataMin - 0.05);
-        maxY = Math.min(1, dataMax + 0.05);
-    }
+    // Force 0-1 range to ensure HIGH/LOW zones are always visible and meaningful
+    const minY = 0;
+    const maxY = 1;
 
     const strictPts: Array<[number, number]> = predHistory.map((p, i) => [
         scaleX(i, n), scaleY(p.strictLine, minY, maxY),
@@ -106,9 +104,20 @@ export function PredictionChart(): React.ReactElement {
     const alignLabel = lastSmoothed >= 0.7 ? 'HIGH ALIGNMENT'
         : lastSmoothed >= 0.4 ? 'MID ALIGNMENT'
             : 'LOW ALIGNMENT';
-    const alignColor = lastSmoothed >= 0.7 ? '#00c853'
-        : lastSmoothed >= 0.4 ? '#ffb300'
-            : '#d32f2f';
+    const alignColor = lastSmoothed >= 0.7 ? 'var(--success)'
+        : lastSmoothed >= 0.4 ? 'var(--warning)'
+            : 'var(--error)';
+
+    // Price normalization helper (Spec 9.3)
+    const normalizePrice = (price: number | null | undefined): number | null => {
+        if (!price || !liquidity || !liquidity.structureBounds) return null;
+        const [min, max] = liquidity.structureBounds;
+        const range = max - min;
+        if (range <= 0) return null;
+        // Normalize to 0-1 range relative to structure bounds
+        return (price - min) / range;
+    };
+
 
     return (
         <div className="prediction-chart">
@@ -119,7 +128,12 @@ export function PredictionChart(): React.ReactElement {
                 <span className={`chart-change ${isUp ? 'up' : 'down'}`}>
                     {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
                 </span>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: alignColor, marginLeft: '8px', padding: '2px 8px', borderRadius: '20px', background: alignColor + '18', border: `1px solid ${alignColor}40` }}>
+                <span className="align-indicator-badge" style={{ 
+                    fontSize: '11px', fontWeight: 700, color: alignColor, 
+                    marginLeft: '8px', padding: '2px 8px', borderRadius: '20px', 
+                    background: lastSmoothed >= 0.7 ? 'rgba(0, 200, 83, 0.15)' : lastSmoothed >= 0.4 ? 'rgba(255, 179, 0, 0.15)' : 'rgba(211, 47, 47, 0.15)',
+                    border: `1px solid ${alignColor}` 
+                }}>
                     {alignLabel}
                 </span>
                 <span className="chart-regime" style={{ color: lineColor, transition: 'color 0.5s ease' }}>
@@ -130,24 +144,56 @@ export function PredictionChart(): React.ReactElement {
             <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
                 style={{ width: '100%', height: '320px', display: 'block' }}>
 
-                {/* Zone backgrounds — removed heavy fills, use lines only for clean look */}
+                {/* Zone background bands — subtle HUD feel */}
+                <rect x={PAD.left} y={PAD.top} width={W - PAD.left - PAD.right} height={highZoneY - PAD.top}
+                    fill="var(--success)" fillOpacity="0.1" />
+                <rect x={PAD.left} y={highZoneY} width={W - PAD.left - PAD.right} height={lowZoneY - highZoneY}
+                    fill="var(--surface3)" fillOpacity="0.15" />
+                <rect x={PAD.left} y={lowZoneY} width={W - PAD.left - PAD.right} height={H - PAD.bottom - lowZoneY}
+                    fill="var(--error)" fillOpacity="0.1" />
+
+                {/* Range Box Overlay (Patch Item #8) */}
+                {breakoutCycle && (() => {
+                    const yRH = normalizePrice(breakoutCycle.rh);
+                    const yRL = normalizePrice(breakoutCycle.rl);
+                    if (yRH === null || yRL === null) return null;
+
+                    const top = scaleY(yRH, minY, maxY);
+                    const bottom = scaleY(yRL, minY, maxY);
+                    const h = Math.abs(bottom - top);
+
+                    return (
+                        <rect
+                            x={PAD.left}
+                            y={Math.min(top, bottom)}
+                            width={W - PAD.left - PAD.right}
+                            height={h}
+                            fill={breakoutColor}
+                            fillOpacity={0.15}
+                            stroke={breakoutColor}
+                            strokeWidth="1.5"
+                            strokeDasharray="4,4"
+                            strokeOpacity={0.4}
+                        />
+                    );
+                })()}
 
                 {/* Zone boundary lines */}
                 {highZoneY >= topY && highZoneY <= bottomY && (
-                    <>
+                    <g>
                         <line x1={PAD.left} y1={highZoneY} x2={W - PAD.right} y2={highZoneY}
-                            stroke="rgba(0,200,83,0.5)" strokeWidth="1" strokeDasharray="6,4" />
-                        <text x={W - PAD.right + 4} y={highZoneY + 4}
-                            fontSize="10" fill="rgba(0,200,83,0.8)" textAnchor="start" fontWeight="700">HIGH</text>
-                    </>
+                            stroke="hsla(150, 100%, 45%, 0.15)" strokeWidth="1" strokeDasharray="6,4" />
+                        <text x={W - PAD.right - 8} y={highZoneY - 12}
+                            fontSize="10" fill="white" textAnchor="end" fontWeight="800" style={{ letterSpacing: '0.05em', opacity: 0.9 }}>HIGH ZONE (≥70%)</text>
+                    </g>
                 )}
                 {lowZoneY >= topY && lowZoneY <= bottomY && (
-                    <>
+                    <g>
                         <line x1={PAD.left} y1={lowZoneY} x2={W - PAD.right} y2={lowZoneY}
-                            stroke="rgba(211,47,47,0.5)" strokeWidth="1" strokeDasharray="6,4" />
-                        <text x={W - PAD.right + 4} y={lowZoneY + 4}
-                            fontSize="10" fill="rgba(211,47,47,0.8)" textAnchor="start" fontWeight="700">LOW</text>
-                    </>
+                            stroke="hsla(0, 100%, 60%, 0.15)" strokeWidth="1" strokeDasharray="6,4" />
+                        <text x={W - PAD.right - 8} y={lowZoneY + 16}
+                            fontSize="10" fill="white" textAnchor="end" fontWeight="800" style={{ letterSpacing: '0.05em', opacity: 0.9 }}>LOW ZONE (&lt;40%)</text>
+                    </g>
                 )}
 
                 {/* MID zone label */}
@@ -155,8 +201,8 @@ export function PredictionChart(): React.ReactElement {
                     const midY = (highZoneY + lowZoneY) / 2;
                     if (midY >= topY && midY <= bottomY) {
                         return (
-                            <text x={W - PAD.right + 4} y={midY + 4}
-                                fontSize="10" fill="rgba(255,179,0,0.6)" textAnchor="start" fontWeight="700">MID</text>
+                            <text x={W - PAD.right - 8} y={midY - 4}
+                                fontSize="9" fill="white" textAnchor="end" fontWeight="700" style={{ opacity: 0.6 }}>MID RANGE</text>
                         );
                     }
                     return null;
@@ -187,21 +233,50 @@ export function PredictionChart(): React.ReactElement {
 
                 {/* Premium / Discount midpoint line — single clean reference line */}
                 {liquidity && liquidity.structureBounds[0] > 0 && (() => {
-                    const structRange = liquidity.structureBounds[1] - liquidity.structureBounds[0];
-                    if (structRange <= 0) return null;
                     const midY = scaleY(0.5, minY, maxY);
                     if (midY < topY || midY > bottomY) return null;
                     return (
                         <g>
                             <line x1={PAD.left} y1={midY} x2={W - PAD.right} y2={midY}
-                                stroke="rgba(200,169,110,0.25)" strokeWidth="1" strokeDasharray="3,6" />
-                            <text x={PAD.left + 4} y={midY - 3}
-                                fontSize="8" fill="rgba(200,169,110,0.45)" textAnchor="start">P/D</text>
+                                stroke="rgba(200,169,110,0.15)" strokeWidth="1" strokeDasharray="2,8" />
+                            <text x={PAD.left + 4} y={midY - 4}
+                                fontSize="9" fill="rgba(200,169,110,0.5)" textAnchor="start" fontWeight="700">P/D</text>
                         </g>
                     );
                 })()}
 
-                {/* Liquidity attractor markers (Section 9.3 — pulsing markers for resistant clusters) */}
+                {/* Breakout Trade Levels (Patch Item #8) */}
+                {breakoutCycle && (breakoutCycle.rangeState === 'BREAKOUT' || breakoutCycle.rangeState === 'RETEST') && (() => {
+                    const levels = [
+                        { val: breakoutCycle.entry1, label: 'ENTRY 1', color: 'var(--accent)' },
+                        { val: breakoutCycle.entry2, label: 'ENTRY 2', color: 'var(--accent)' },
+                        { val: breakoutCycle.stopLoss, label: 'STOP', color: 'var(--error)' },
+                        { val: breakoutCycle.tp1, label: 'TP 1', color: 'var(--success)' },
+                        { val: breakoutCycle.tp2, label: 'TP 2', color: 'var(--success)' },
+                    ].filter(l => l.val != null);
+
+                    return levels.map((l, i) => {
+                        const yNorm = normalizePrice(l.val);
+                        if (yNorm === null) return null;
+                        const y = scaleY(yNorm, minY, maxY);
+                        if (y < topY || y > bottomY) return null;
+
+                        return (
+                            <g key={i}>
+                                <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
+                                    stroke={l.color} strokeWidth="1.5" strokeDasharray={l.label === 'STOP' ? '0' : '5,5'} />
+                                <rect x={W - PAD.right + 2} y={y - 8} width={42} height={16}
+                                    rx={4} ry={4} fill={l.color} />
+                                <text x={W - PAD.right + 23} y={y + 4}
+                                    textAnchor="middle" fontSize="9" fill="white" fontWeight="900" fontFamily="Inter,sans-serif">
+                                    {l.label}
+                                </text>
+                            </g>
+                        );
+                    });
+                })()}
+
+                {/* Liquidity attractor markers — simplified to margin dots to reduce noise */}
                 {liquidity && liquidity.zones.filter(z => z.type === 'RESISTANT_CLUSTER' || z.type === 'LIQ_SHELF').slice(0, 5).map(zone => {
                     const structLow = liquidity.structureBounds[0];
                     const structHigh = liquidity.structureBounds[1];
@@ -212,20 +287,19 @@ export function PredictionChart(): React.ReactElement {
                     if (zoneNorm < minY - 0.05 || zoneNorm > maxY + 0.05) return null;
                     const zoneY = scaleY(Math.max(0, Math.min(1, zoneNorm)), minY, maxY);
                     if (zoneY < topY || zoneY > bottomY) return null;
-                    const color = zone.type === 'RESISTANT_CLUSTER' ? '#00c853' : '#ffb300';
-                    const opacity = Math.max(0.3, zone.strength);
+                    const color = zone.type === 'RESISTANT_CLUSTER' ? 'var(--green)' : 'var(--yellow)';
+                    const opacity = Math.max(0.2, zone.strength * 0.4);
                     return (
                         <g key={zone.id}>
-                            <line x1={PAD.left} y1={zoneY} x2={W - PAD.right} y2={zoneY}
-                                stroke={color} strokeWidth="1" strokeDasharray="2,6"
-                                opacity={opacity * 0.6} />
                             <circle cx={PAD.left - 4} cy={zoneY} r="3"
                                 fill={color} opacity={opacity} />
+                            <line x1={PAD.left} y1={zoneY} x2={PAD.left + 20} y2={zoneY}
+                                stroke={color} strokeWidth="1" opacity={opacity * 0.5} />
                         </g>
                     );
                 })}
 
-                {/* Volatility envelopes — thin border lines only, no filled rects */}
+                {/* Volatility envelopes — ultra-thin background reference */}
                 {prediction && (() => {
                     const b95Hi = scaleY(prediction.band95[1], minY, maxY);
                     const b95Lo = scaleY(prediction.band95[0], minY, maxY);
@@ -233,16 +307,14 @@ export function PredictionChart(): React.ReactElement {
                     const b50Lo = scaleY(prediction.band50[0], minY, maxY);
                     return (
                         <>
-                            {/* 95% outer boundary — very faint */}
                             <line x1={PAD.left} y1={b95Hi} x2={W - PAD.right} y2={b95Hi}
-                                stroke={`${lineColor}20`} strokeWidth="1" strokeDasharray="2,4" />
+                                stroke={`${lineColor}15`} strokeWidth="0.8" strokeDasharray="2,6" />
                             <line x1={PAD.left} y1={b95Lo} x2={W - PAD.right} y2={b95Lo}
-                                stroke={`${lineColor}20`} strokeWidth="1" strokeDasharray="2,4" />
-                            {/* 50% inner boundary — slightly more visible */}
+                                stroke={`${lineColor}15`} strokeWidth="0.8" strokeDasharray="2,6" />
                             <line x1={PAD.left} y1={b50Hi} x2={W - PAD.right} y2={b50Hi}
-                                stroke={`${lineColor}30`} strokeWidth="1" strokeDasharray="1,5" />
+                                stroke={`${lineColor}25`} strokeWidth="0.8" strokeDasharray="1,8" />
                             <line x1={PAD.left} y1={b50Lo} x2={W - PAD.right} y2={b50Lo}
-                                stroke={`${lineColor}30`} strokeWidth="1" strokeDasharray="1,5" />
+                                stroke={`${lineColor}25`} strokeWidth="0.8" strokeDasharray="1,8" />
                         </>
                     );
                 })()}
@@ -264,13 +336,32 @@ export function PredictionChart(): React.ReactElement {
                     r="5" fill={lineColor} stroke="#000" strokeWidth="2"
                     style={{ transition: 'fill 0.5s ease' }} />
 
-                {/* Current value label next to end dot */}
+                {/* Current value label next to end dot — handling boundary cases */}
                 <text
-                    x={smoothedPts[n - 1][0] - 8}
-                    y={smoothedPts[n - 1][1] - 10}
-                    textAnchor="middle" fontSize="11" fill={lineColor} fontWeight="700" fontFamily="Inter,sans-serif">
+                    x={smoothedPts[n - 1][0] - 12}
+                    y={Math.max(PAD.top + 10, Math.min(H - PAD.bottom - 10, smoothedPts[n - 1][1] - 10))}
+                    textAnchor="end" fontSize="12" fill={lineColor} fontWeight="800" fontFamily="Inter, sans-serif"
+                    style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.5))' }}>
                     {(lastSmoothed * 100).toFixed(1)}%
                 </text>
+
+                {breakoutCycle && (
+                    <g>
+                        <rect x={W - PAD.right - 140} y={PAD.top + 6} width={136} height={38}
+                            rx={10} ry={10} fill="var(--surface3)" stroke={`${breakoutColor}40`} strokeWidth="1" />
+                        <text x={W - PAD.right - 68} y={PAD.top + 22}
+                            textAnchor="middle" fontSize="11" fill={breakoutColor} fontWeight="800" fontFamily="Inter,sans-serif"
+                            style={{ textShadow: `0 0 8px ${breakoutColor}40` }}>
+                            {breakoutLabel}
+                        </text>
+                        {breakoutCycle.retestLevel != null && (
+                            <text x={W - PAD.right - 68} y={PAD.top + 34}
+                                textAnchor="middle" fontSize="9" fill={breakoutColor} fontFamily="Inter,sans-serif">
+                                Retest threshold: {breakoutCycle.retestLevel.toFixed(2)}
+                            </text>
+                        )}
+                    </g>
+                )}
 
                 {/* Y-axis label */}
                 <text x={14} y={H / 2} textAnchor="middle" fontSize="10"
@@ -280,13 +371,17 @@ export function PredictionChart(): React.ReactElement {
                 </text>
             </svg>
 
-            <div className="chart-legend">
-                <span style={{ color: '#00c853', fontSize: '11px' }}>■ HIGH ≥70%</span>
-                <span style={{ color: '#ffb300', fontSize: '11px', marginLeft: '12px' }}>■ MID 40–70%</span>
-                <span style={{ color: '#d32f2f', fontSize: '11px', marginLeft: '12px' }}>■ LOW &lt;40%</span>
-                <span style={{ color: 'rgba(200,169,110,0.6)', fontSize: '10px', marginLeft: '12px' }}>╌ structure</span>
-                <span style={{ color: 'var(--text3)', fontSize: '10px', marginLeft: 'auto' }}>— smoothed · ╌ raw · {n} pts</span>
+            <div className="chart-legend" style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+                <span style={{ color: 'var(--green)', fontSize: '10px', fontWeight: 700 }}>● HIGH SIGNAL</span>
+                <span style={{ color: 'var(--yellow)', fontSize: '10px', fontWeight: 700, marginLeft: '16px' }}>● MID SIGNAL</span>
+                <span style={{ color: 'var(--red)', fontSize: '10px', fontWeight: 700, marginLeft: '16px' }}>● LOW SIGNAL</span>
+                <span style={{ color: 'var(--text3)', fontSize: '10px', marginLeft: 'auto', display: 'flex', gap: '16px' }}>
+                    <span><span style={{ color: lineColor }}>—</span> Smoothed</span>
+                    <span><span style={{ color: lineColor, opacity: 0.4 }}>╌╌</span> Raw Signal</span>
+                    <span style={{ color: 'var(--amber)', opacity: 0.6 }}>● Liquidity</span>
+                </span>
             </div>
         </div>
     );
 }
+

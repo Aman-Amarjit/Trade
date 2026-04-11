@@ -11,6 +11,7 @@ import { GeometryPanel } from '../components/GeometryPanel';
 import { MicrostructurePanel } from '../components/MicrostructurePanel';
 import { AlertsPanel } from '../components/AlertsPanel';
 import { ReplayPanel } from '../components/ReplayPanel';
+import { EngineMonitor } from '../components/EngineMonitor';
 import { DashboardPanel } from '../components/DashboardPanel';
 
 const SYMBOLS = (import.meta.env.VITE_SYMBOLS ?? import.meta.env.VITE_DEFAULT_SYMBOL ?? 'BTC-USDT')
@@ -29,8 +30,12 @@ export function LiveAnalysisPage(): React.ReactElement {
     const [activeSymbol, setActiveSymbol] = useState(SYMBOLS[0] ?? 'BTC-USDT');
     const clearData = useLiveStore(s => s.clearData);
     const setStoreActiveSymbol = useLiveStore(s => s.setActiveSymbol);
+    const dailyDrawdown = useLiveStore(s => s.dailyDrawdown);
+    const dailyDrawdownCap = useLiveStore(s => s.dailyDrawdownCap);
 
-    React.useEffect(() => { setStoreActiveSymbol(SYMBOLS[0] ?? 'BTC-USDT'); }, []);
+    React.useEffect(() => {
+        setStoreActiveSymbol(SYMBOLS[0] ?? 'BTC-USDT');
+    }, [setStoreActiveSymbol]);
 
     const handleSelectSymbol = (sym: string) => {
         if (sym === activeSymbol) return;
@@ -47,6 +52,7 @@ export function LiveAnalysisPage(): React.ReactElement {
     const prediction = useLiveStore(s => s.prediction);
     const risk = useLiveStore(s => s.risk);
     const state = useLiveStore(s => s.state);
+    const breakoutCycle = useLiveStore(s => s.breakoutCycle);
 
     // Key metrics for sticky header
     const alignScore = prediction ? (prediction.smoothed * 100).toFixed(1) + '%' : '—';
@@ -62,7 +68,10 @@ export function LiveAnalysisPage(): React.ReactElement {
     return (
         <main className="hud-layout" role="main">
             <header className="hud-header">
-                <span className="hud-title">Analytical HUD</span>
+                <div className="live-status">
+                    <div className="live-dot" style={{ animation: 'pulse-live 2s infinite' }} />
+                    <span className="hud-title">Trading Analytics Dashboard</span>
+                </div>
                 <div className="hud-header-divider" />
 
                 {/* Symbol selector */}
@@ -101,6 +110,16 @@ export function LiveAnalysisPage(): React.ReactElement {
                                 <span className="pill-label">Vol</span>
                                 <span className="pill-value">{risk.volatilityRegime}</span>
                             </div>
+                            {risk.ev !== undefined && (
+                                <div className={`hud-metric-pill ${risk.ev >= 0 ? 'pill-green' : 'pill-red'}`}>
+                                    <span className="pill-label">EV</span>
+                                    <span className="pill-value">{risk.ev.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className={`hud-metric-pill ${dailyDrawdown >= dailyDrawdownCap * 0.8 ? 'pill-red' : dailyDrawdown >= dailyDrawdownCap * 0.5 ? 'pill-yellow' : ''}`}>
+                                <span className="pill-label">Risk DD</span>
+                                <span className="pill-value">${(dailyDrawdown ?? 0).toFixed(2)}</span>
+                            </div>
                         </>
                     )}
                     {state && (
@@ -112,7 +131,7 @@ export function LiveAnalysisPage(): React.ReactElement {
                 </div>
 
                 {isReplayMode && <span className="replay-indicator">⏮ Replay</span>}
-                {isStale && <span className="stale-indicator" role="alert">⚠ Stale</span>}
+                {isStale && <span className="stale-indicator" role="alert" style={{ background: 'var(--error-dim)', color: 'var(--error)', border: '1px solid var(--error)' }}>⚠ Stale</span>}
                 {lastUpdated && (
                     <span className="last-updated">
                         {new Date(lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -121,16 +140,69 @@ export function LiveAnalysisPage(): React.ReactElement {
             </header>
 
             <div className="hud-grid">
-                <PredictionGraph />
-                <SliderPanel />
-                <LiquidityMapPanel />
-                <GeometryPanel />
-                <MicrostructurePanel />
-                <AlertsPanel />
-                <div style={{ gridColumn: 'span 2' }}>
+                {/* Column 1: Main Analysis */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <PredictionGraph />
+                </div>
+
+                {/* Column 2: Orderflow & Diagnostics */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <MicrostructurePanel />
+                    <AlertsPanel />
+                    <ReplayPanel />
+                    <EngineMonitor />
+                    <SliderPanel />
+                </div>
+
+                {/* Column 3: Structure & Breakout */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div className="panel breakout-panel" role="region" aria-label="Range Context">
+                        <div className="panel-title-row">
+                            <h2 className="panel-title" style={{ border: 'none', padding: 0 }}>
+                                <span className="panel-title-icon">📊</span> Market Structure
+                            </h2>
+                            {breakoutCycle && (
+                                <span className={`badge ${breakoutCycle.rangeState === 'BREAKOUT' ? 'green' : breakoutCycle.rangeState === 'CONTRACTION' ? 'yellow' : ''}`}>
+                                    {breakoutCycle.rangeState}
+                                </span>
+                            )}
+                        </div>
+                        {breakoutCycle ? (
+                            <div className="breakout-summary">
+                                <div className="metric-row">
+                                    <span className="label">Bias</span>
+                                    <span className="value">{breakoutCycle.breakoutDirection === 'LONG' ? 'Bullish' : breakoutCycle.breakoutDirection === 'SHORT' ? 'Bearish' : 'Neutral'}</span>
+                                </div>
+                                <div className="metric-row">
+                                    <span className="label">Range Bound</span>
+                                    <span className="value">{breakoutCycle.rl.toFixed(2)} - {breakoutCycle.rh.toFixed(2)}</span>
+                                </div>
+                                <div className="panel-divider" style={{ margin: '8px 0' }} />
+                                <div className="metric-row">
+                                    <span className="label">Entry (L1/L2)</span>
+                                    <span className="value">{breakoutCycle.entry1?.toFixed(2) ?? '—'} / {breakoutCycle.entry2?.toFixed(2) ?? '—'}</span>
+                                </div>
+                                <div className="metric-row">
+                                    <span className="label">Stop / PT1</span>
+                                    <span className="value" style={{ color: 'var(--error)' }}>{breakoutCycle.stopLoss?.toFixed(2) ?? '—'}</span>
+                                    <span className="value" style={{ color: 'var(--success)' }}>{breakoutCycle.tp1?.toFixed(2) ?? '—'}</span>
+                                </div>
+                                <div className="metric-row">
+                                    <span className="label">Invalidated</span>
+                                    <span className="value">{breakoutCycle.invalidated ? 'YES' : 'NO'}</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <span className="no-data">Scanning structures...</span>
+                        )}
+                    </div>
+                    <GeometryPanel />
+                    <LiquidityMapPanel />
+                </div>
+
+                <div style={{ gridColumn: 'span 3', marginTop: '16px' }}>
                     <DashboardPanel activeSymbol={activeSymbol} onSelectSymbol={handleSelectSymbol} />
                 </div>
-                <ReplayPanel />
             </div>
         </main>
     );

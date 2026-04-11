@@ -6,3 +6,6 @@ export type { MicroStructureInput } from './MicroStructureEngine.js';
 
 export { OrderflowEngine } from './OrderflowEngine.js';
 export type { OrderflowInput } from './OrderflowEngine.js';
+
+export { BreakoutCycleEngine } from './BreakoutCycleEngine.js';
+export type { BreakoutCycleInput, BreakoutCycleOutput } from '../../../shared/types/index.js';

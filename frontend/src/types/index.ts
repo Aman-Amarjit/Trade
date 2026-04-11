@@ -10,6 +10,8 @@ export type RegimePersistence = 'LOW_PERSISTENCE' | 'MEDIUM_PERSISTENCE' | 'HIGH
 export type GeometryRegime = 'STABLE_STRUCTURE' | 'EXPANDING_STRUCTURE' | 'COLLAPSING_STRUCTURE' | 'CHAOTIC_STRUCTURE';
 export type SectorRotation = 'BTC-DOMINANT' | 'ETH-DOMINANT' | 'SOL-DOMINANT' | 'MEME-ROTATION' | 'RISK-OFF';
 export type TrendClassification = 'UP' | 'DOWN' | 'RANGE';
+export type RangeState = 'EXPANSION' | 'CONTRACTION' | 'BREAKOUT' | 'RETEST';
+export type BreakoutDirection = 'LONG' | 'SHORT' | null;
 
 export interface PredictionOutput {
     strictLine: number;
@@ -37,6 +39,7 @@ export interface RiskOutput {
     microstructureComplete: boolean;
     hardReject: boolean;
     rejectReasons: string[];
+    feeAwareNetProfit?: number;
 }
 
 export interface StateMachineOutput {
@@ -95,6 +98,21 @@ export interface OrderflowOutput {
     bidAskPressure: number;
 }
 
+export interface BreakoutCycleOutput {
+    rangeState: RangeState;
+    rh: number;
+    rl: number;
+    breakoutDirection: BreakoutDirection;
+    breakoutLevel: number | null;
+    entry1: number | null;
+    entry2: number | null;
+    retestLevel: number | null;
+    stopLoss: number | null;
+    tp1: number | null;
+    tp2: number | null;
+    invalidated: boolean;
+}
+
 export interface LiveAnalysisResponse {
     symbol: string;
     timeframe: string;
@@ -104,8 +122,14 @@ export interface LiveAnalysisResponse {
     liquidity: LiquidityMapOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
+    breakoutCycle?: BreakoutCycleOutput;
+    currentPrice: number;
     scoring: { probability: number; contributions: Record<string, number> };
     timestamp: string;
     degraded?: boolean;
     failedEngines?: string[];
+    engineRate?: number;    // Hz
+    rejectionRatio?: number; // %
+    dailyDrawdown: number;
+    dailyDrawdownCap: number;
 }

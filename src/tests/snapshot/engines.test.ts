@@ -150,6 +150,11 @@ describe('Snapshot tests — all 15 engines', () => {
             liquidityMap: { zones: [], premiumZone: [50100, 50300], discountZone: [49900, 50100], structureBounds: [49900, 50300] },
             microstructure: { sweep: false, divergence: false, cvdDivergence: false, bosDetected: false, retestZone: false, htfAlignment: true, alignmentScore: 0.5 },
             orderflow: { delta: 50, cvd: 100, absorption: false, footprintImbalance: 0.1, bidAskPressure: 0.09 },
+            breakoutCycle: {
+                rangeState: 'EXPANSION', rh: 50300, rl: 49900, breakoutDirection: null,
+                breakoutLevel: null, entry1: null, entry2: null, retestLevel: null,
+                stopLoss: null, tp1: null, tp2: null, invalidated: false,
+            },
             volatilityRegime: 'NORMAL', macroBias: 'LONG', sessionType: 'NEWYORK',
         });
         expect(result).toMatchSnapshot();
@@ -162,6 +167,7 @@ describe('Snapshot tests — all 15 engines', () => {
             microstructure: { sweep: true, divergence: false, cvdDivergence: false, bosDetected: true, retestZone: true, htfAlignment: true, alignmentScore: 0.8 },
             volatilityRegime: 'NORMAL', globalStress: 'SAFE',
             atr: 200, volatilityFactor: 1.0, stopMultiplier: 1.0, targetMultiplier: 1.5, eddThreshold: 400,
+            currentPrice: 50000,
         });
         expect(result).toMatchSnapshot();
     });

@@ -1,8 +1,8 @@
 // DashboardPanel — multi-asset overview (Section 9.9)
 // Requirements: 19.5, 9.9
-// Supports asset switching via activeSymbol + onSelectSymbol props
+// Refactored to Section 9 Table format: Symbol | Align | Stress | Net Profit | Action
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? '';
@@ -17,11 +17,8 @@ interface AssetSummary {
     volatilityRegime?: string;
     globalStress?: string;
     state?: string;
-    geometryRegime?: string | null;
     expectedMove?: number;
-    timeWindow?: string;
     degraded?: boolean;
-    timestamp?: string;
 }
 
 interface DashboardPanelProps {
@@ -29,154 +26,111 @@ interface DashboardPanelProps {
     onSelectSymbol?: (symbol: string) => void;
 }
 
-const REGIME_CLASS: Record<string, string> = {
-    LOW: 'regime-low',
-    NORMAL: 'regime-normal',
-    HIGH: 'regime-high',
-    EXTREME: 'regime-extreme',
-};
-
 const STRESS_CLASS: Record<string, string> = {
-    SAFE: 'stress-safe',
-    CAUTION: 'stress-caution',
-    HALT: 'stress-halt',
+    SAFE: 'status-green',
+    CAUTION: 'status-yellow',
+    HALT: 'status-red',
 };
 
 const STATE_CLASS: Record<string, string> = {
-    IDLE: 'state-idle',
-    WAITING_FOR_RETEST: 'state-waiting',
-    IN_TRADE: 'state-active',
-    COOLDOWN: 'state-cooldown',
-};
-
-// Display labels for state names — IN_TRADE is shown as "HIGH ALIGNMENT" in the UI
-// to reflect its meaning (high signal alignment), while the backend API name is unchanged.
-const STATE_LABELS: Record<string, string> = {
-    IDLE: 'IDLE',
-    WAITING_FOR_RETEST: 'WAITING',
-    IN_TRADE: 'HIGH ALIGNMENT',
-    COOLDOWN: 'COOLDOWN',
+    IDLE: '',
+    WAITING_FOR_RETEST: 'status-yellow',
+    IN_TRADE: 'status-green',
+    COOLDOWN: 'status-blue',
 };
 
 export function DashboardPanel({ activeSymbol, onSelectSymbol }: DashboardPanelProps): React.ReactElement {
     const [summaries, setSummaries] = useState<AssetSummary[]>([]);
     const [lastFetch, setLastFetch] = useState<string | null>(null);
 
-    const fetchDashboard = useCallback(async () => {
-        try {
-            const res = await fetch(
-                `${API_BASE}/analysis/dashboard?symbols=${SYMBOLS.join(',')}`,
-                { headers: { Authorization: `Bearer ${TOKEN}` } },
-            );
-            if (res.ok) {
-                const data = await res.json() as AssetSummary[];
-                setSummaries(data);
-                setLastFetch(new Date().toLocaleTimeString());
-            }
-        } catch { /* silent */ }
+    useEffect(() => {
+        let isMounted = true;
+        const refresh = async () => {
+            try {
+                const res = await fetch(
+                    `${API_BASE}/analysis/dashboard?symbols=${SYMBOLS.join(',')}`,
+                    { headers: { Authorization: `Bearer ${TOKEN}` } },
+                );
+                if (res.ok && isMounted) {
+                    const data = await res.json() as AssetSummary[];
+                    setSummaries(data);
+                    setLastFetch(new Date().toLocaleTimeString());
+                }
+            } catch { }
+        };
+        refresh();
+        const timer = setInterval(refresh, 5000);
+        return () => { isMounted = false; clearInterval(timer); };
     }, []);
 
-    useEffect(() => {
-        fetchDashboard();
-        const timer = setInterval(fetchDashboard, 5000);
-        return () => clearInterval(timer);
-    }, [fetchDashboard]);
-
     return (
-        <div className="panel dashboard-panel" role="region" aria-label="Multi-Asset Dashboard">
+        <div className="panel dashboard-panel-v2" role="region" aria-label="Section 9 Dashboard">
             <div className="panel-title-row">
                 <h2 className="panel-title" style={{ border: 'none', padding: 0 }}>
-                    <span className="panel-title-icon">📈</span> Multi-Asset Overview
+                    <span className="panel-title-icon">📋</span> Multi-Asset Summary
                 </h2>
-                {lastFetch && <span className="dashboard-updated">{lastFetch}</span>}
+                {lastFetch && <span className="timestamp-badge">LIVESTREAM: {lastFetch}</span>}
             </div>
 
-            {summaries.length === 0 ? (
-                <span className="no-data">Awaiting dashboard data…</span>
-            ) : (
-                <div className="dashboard-grid">
-                    {summaries.map(s => {
-                        const isActive = s.symbol === activeSymbol;
-                        return (
-                            <div
-                                key={s.symbol}
-                                className={`dashboard-card ${s.degraded ? 'degraded' : ''} ${isActive ? 'active-asset' : ''}`}
-                                data-symbol={s.symbol}
-                                onClick={() => onSelectSymbol?.(s.symbol)}
-                                role="button"
-                                tabIndex={0}
-                                aria-pressed={isActive}
-                                onKeyDown={e => e.key === 'Enter' && onSelectSymbol?.(s.symbol)}
-                                style={{ cursor: onSelectSymbol ? 'pointer' : 'default' }}
-                            >
-                                <div className="dashboard-symbol-row">
-                                    <span className="dashboard-symbol">{s.symbol}</span>
-                                    {isActive && <span className="dashboard-active-badge">ACTIVE</span>}
-                                </div>
-
-                                {!s.available ? (
-                                    <span className="no-data" style={{ fontSize: '11px' }}>No data</span>
-                                ) : (
-                                    <>
-                                        <div className="dashboard-prob">
-                                            <span className="dashboard-prob-label">Probability</span>
-                                            <div className="dashboard-prob-bar-track">
-                                                <div
-                                                    className={`dashboard-prob-bar ${(s.probability ?? 0) >= 80 ? 'high' : (s.probability ?? 0) >= 50 ? 'medium' : 'low'}`}
-                                                    style={{ width: `${s.probability ?? 0}%` }}
-                                                />
+            <div className="dashboard-table-container">
+                <table className="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Align</th>
+                            <th>Stress</th>
+                            <th>Profit (EDD)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {summaries.length === 0 ? (
+                            <tr><td colSpan={5} className="no-data-cell">Awaiting stream data...</td></tr>
+                        ) : (
+                            summaries.map(s => {
+                                const isActive = s.symbol === activeSymbol;
+                                const prob = s.probability ?? 0;
+                                const probClass = prob >= 80 ? 'status-green' : prob >= 50 ? 'status-yellow' : 'status-red';
+                                
+                                return (
+                                    <tr 
+                                        key={s.symbol} 
+                                        className={isActive ? 'active-row' : ''}
+                                        onClick={() => onSelectSymbol?.(s.symbol)}
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        <td className="cell-symbol">
+                                            <div className="symbol-with-dot">
+                                                <div className={`status-dot ${s.degraded ? 'degraded' : 'active'}`} />
+                                                {s.symbol}
                                             </div>
-                                            <span className="dashboard-prob-value">{(s.probability ?? 0).toFixed(1)}</span>
-                                        </div>
-
-                                        <div className="dashboard-badges">
-                                            {s.volatilityRegime && (
-                                                <span className={`badge ${REGIME_CLASS[s.volatilityRegime] ?? ''}`}>
-                                                    ⚡ {s.volatilityRegime}
-                                                </span>
-                                            )}
-                                            {s.globalStress && (
-                                                <span className={`badge ${STRESS_CLASS[s.globalStress] ?? ''}`}>
-                                                    {s.globalStress === 'SAFE' ? '✓' : s.globalStress === 'HALT' ? '✕' : '⚠'} {s.globalStress}
-                                                </span>
-                                            )}
-                                            {s.geometryRegime && (
-                                                <span className={`badge regime-${s.geometryRegime.toLowerCase().replace(/_/g, '-')}`}>
-                                                    {s.geometryRegime.replace(/_STRUCTURE$/, '')}
-                                                </span>
-                                            )}
-                                            {s.state && (
-                                                <span className={`badge ${STATE_CLASS[s.state] ?? ''}`}>
-                                                    {STATE_LABELS[s.state] ?? s.state.replace(/_/g, ' ')}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {(s.expectedMove !== undefined || s.timeWindow) && (
-                                            <div className="dashboard-meta">
-                                                {s.expectedMove !== undefined && (
-                                                    <span className="dashboard-meta-item">
-                                                        EDD: <strong>{s.expectedMove.toFixed(2)}</strong>
-                                                    </span>
-                                                )}
-                                                {s.timeWindow && (
-                                                    <span className="dashboard-meta-item">
-                                                        Window: <strong>{s.timeWindow}</strong>
-                                                    </span>
-                                                )}
+                                        </td>
+                                        <td className={`cell-align ${probClass}`}>
+                                            <div className="align-box">
+                                                <div className="align-bar" style={{ width: `${prob}%` }} />
+                                                <span>{prob.toFixed(1)}%</span>
                                             </div>
-                                        )}
-
-                                        {s.degraded && (
-                                            <span className="dashboard-degraded">⚠ Degraded</span>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
+                                        </td>
+                                        <td className="cell-stress">
+                                            <span className={`status-pill ${STRESS_CLASS[s.globalStress ?? ''] ?? ''}`}>
+                                                {s.globalStress ?? '—'}
+                                            </span>
+                                        </td>
+                                        <td className="cell-profit">
+                                            {s.expectedMove != null ? `${s.expectedMove.toFixed(2)}%` : '—'}
+                                        </td>
+                                        <td className="cell-action">
+                                            <span className={`action-pill ${STATE_CLASS[s.state ?? ''] ?? ''}`}>
+                                                {s.state?.replace(/_/g, ' ') ?? 'IDLE'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }

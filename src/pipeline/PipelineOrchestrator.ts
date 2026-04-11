@@ -38,7 +38,7 @@ import { MarketStructureContextEngine } from '../engines/structure/MarketStructu
 import { LiquidityMapEngine } from '../engines/structure/LiquidityMapEngine.js';
 import { GeometryClassifier } from '../engines/geometry/GeometryClassifier.js';
 import { MicroStructureEngine } from '../engines/geometry/MicroStructureEngine.js';
-import { OrderflowEngine } from '../engines/geometry/OrderflowEngine.js';
+import { OrderflowEngine, BreakoutCycleEngine, type BreakoutCycleInput, type BreakoutCycleOutput } from '../engines/geometry/index.js';
 import { PredictionEngine } from '../engines/decision/PredictionEngine.js';
 import { ScoringEngine } from '../engines/decision/ScoringEngine.js';
 import { RiskManager } from '../engines/decision/RiskManager.js';
@@ -54,6 +54,10 @@ const DEFAULT_SESSION_TYPE: SessionType = 'ASIA';
 const DEFAULT_MARKET_STRUCTURE: MarketStructureOutput = {
     internalSwings: [], externalSwings: [], trend: 'RANGE',
     premiumZone: [0, 0], discountZone: [0, 0], structureBounds: [0, 0],
+    rangeState: null as any,
+    rh: 0,
+    rl: 0,
+    breakoutDirection: null as any,
 };
 const DEFAULT_LIQUIDITY_MAP: LiquidityMapOutput = {
     zones: [], premiumZone: [0, 0], discountZone: [0, 0], structureBounds: [0, 0],
@@ -70,6 +74,22 @@ const DEFAULT_MICROSTRUCTURE: MicrostructureOutput = {
 const DEFAULT_ORDERFLOW: OrderflowOutput = {
     delta: 0, cvd: 0, absorption: false, footprintImbalance: 0, bidAskPressure: 0,
 };
+
+const DEFAULT_BREAKOUT_CYCLE: BreakoutCycleOutput = {
+    rangeState: 'EXPANSION',
+    rh: 0,
+    rl: 0,
+    breakoutDirection: null,
+    breakoutLevel: null,
+    entry1: null,
+    entry2: null,
+    retestLevel: null,
+    stopLoss: null,
+    tp1: null,
+    tp2: null,
+    invalidated: false,
+};
+
 const DEFAULT_PREDICTION = (): PredictionOutput => ({
     strictLine: 0.5, min: 0, max: 1,
     band50: [0.25, 0.75], band80: [0.1, 0.9], band95: [0.05, 0.95],
@@ -82,6 +102,7 @@ const DEFAULT_RISK = (): RiskOutput => ({
     volatilityRegime: 'NORMAL', globalStress: 'CAUTION',
     geometryStable: false, microstructureComplete: false,
     hardReject: true, rejectReasons: ['Pipeline degraded'],
+    dailyDrawdown: 0, dailyDrawdownCap: 1000,
 });
 const DEFAULT_STATE = (): StateMachineOutput => ({
     state: 'IDLE', previousState: null, timestamp: new Date().toISOString(),
@@ -118,6 +139,14 @@ export class PipelineOrchestrator {
     // Smooth atrPercentile (V) to prevent volatility noise from spiking
     private smoothedAtrPercentile: number = 0.5;
 
+    // Stats tracking for HUD diagnostics
+    private totalCycles = 0;
+    private totalRejections = 0;
+    // Rolling daily tracking (Section 8.4)
+    private dailyHighWaterMark: number = 0;
+    private dailyDrawdown: number = 0;
+    private lastResetDate: string = new Date().getUTCDate().toString();
+
     // ── Differential update frequency (Section 3.5) ──────────────────────────
     // Low-frequency engines: MacroBias, GlobalStress, SectorRotation, AssetProfile
     // These run every ~5 minutes (150 cycles at 2s each), not every candle
@@ -134,6 +163,7 @@ export class PipelineOrchestrator {
         const start = Date.now();
         const failedEngines: string[] = [];
         let degraded = false;
+        this.totalCycles++;
         this.cycleCount++;
         const isLowFreqCycle = this.cycleCount % this.LOW_FREQ_INTERVAL === 1;
 
@@ -256,7 +286,8 @@ export class PipelineOrchestrator {
         };
 
         // Use provided candle window or fall back to single candle
-        const candles = (candleWindow && candleWindow.length >= 3) ? candleWindow : [candle];
+        const candles = candleWindow && candleWindow.length >= 3 ? candleWindow.map(c => ({ ...c, volume: bundle.volume.raw })) : [{ ...candle, volume: bundle.volume.raw }];
+
 
         const msResult = MarketStructureContextEngine.execute({
             swings: bundle.structure.swings,
@@ -319,6 +350,7 @@ export class PipelineOrchestrator {
             ? (fail('MicroStructureEngine', microResult), DEFAULT_MICROSTRUCTURE)
             : microResult;
 
+
         const ofResult = OrderflowEngine.execute({
             bid: bundle.orderflow.bid,
             ask: bundle.orderflow.ask,
@@ -330,7 +362,27 @@ export class PipelineOrchestrator {
             ? (fail('OrderflowEngine', ofResult), DEFAULT_ORDERFLOW)
             : ofResult;
 
-        const geometryBundle: GeometryBundle = { geometry, microstructure, orderflow };
+        // BreakoutCycleEngine (Engine #15) - after orderflow
+        const avgRangeBody = candles.slice(-20).reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / 20;
+        const avgRangeVolume = candles.slice(-20).reduce((sum, c) => sum + (c.volume || 0), 0) / 20;
+        const breakoutResult = BreakoutCycleEngine.execute({
+            candles,
+            atr: bundle.volatility.atr,
+            avgRangeBody,
+            avgRangeVolume,
+            liquidityMap,
+            marketStructure,
+            volatilityRegime,
+            microstructure,
+        });
+        const breakoutCycle: BreakoutCycleOutput = isEngineError(breakoutResult)
+            ? (fail('BreakoutCycleEngine', breakoutResult), DEFAULT_BREAKOUT_CYCLE)
+            : breakoutResult;
+
+        const geometryBundle: GeometryBundle & { breakoutCycle: BreakoutCycleOutput } = {
+            geometry, microstructure, orderflow, breakoutCycle
+        };
+
 
         // Smooth alignment score to prevent M input from spiking each cycle
         // Alpha 0.05 = very slow EMA (~20 cycle half-life) — prevents sawtooth
@@ -425,7 +477,7 @@ export class PipelineOrchestrator {
         this.signalAge = Math.min(this.signalAge + 1, 60); // cap at 60 cycles
 
         const scoreResult = ScoringEngine.execute({
-            geometry, liquidityMap, microstructure, orderflow,
+            geometry, liquidityMap, microstructure, orderflow, breakoutCycle,
             volatilityRegime, macroBias, sessionType,
             // Section 5.1.9 — microState feeds into Scoring Engine
             microState: geometry.microState ?? null,
@@ -434,15 +486,35 @@ export class PipelineOrchestrator {
             ? (fail('ScoringEngine', scoreResult), DEFAULT_SCORING)
             : scoreResult;
 
+        // Update daily high water mark and drawdown (Section 8.4)
+        const currentPrice = bundle.price.close;
+        const today = new Date().getUTCDate().toString();
+        if (this.lastResetDate !== today) {
+            this.dailyHighWaterMark = currentPrice;
+            this.dailyDrawdown = 0;
+            this.lastResetDate = today;
+        } else {
+            this.dailyHighWaterMark = Math.max(this.dailyHighWaterMark, currentPrice);
+            this.dailyDrawdown = Math.max(0, this.dailyHighWaterMark - currentPrice);
+        }
+
+        const dailyDrawdownCap = parseFloat(process.env['DAILY_DRAWDOWN_CAP'] ?? '1000');
+
         const riskResult = RiskManager.execute({
-            scoring, geometry, microstructure, volatilityRegime, globalStress,
+            scoring, geometry, microstructure, breakoutCycle,
+            volatilityRegime, globalStress,
             atr: bundle.volatility.atr,
             volatilityFactor: 1.0, stopMultiplier: 1.0,
             targetMultiplier: 1.5, eddThreshold: bundle.volatility.atr * 2,
+            currentPrice,
+            dailyDrawdown: this.dailyDrawdown,
+            dailyDrawdownCap,
         });
         const risk: RiskOutput = isEngineError(riskResult)
             ? (fail('RiskManager', riskResult), DEFAULT_RISK())
             : riskResult;
+
+        if (risk.hardReject) this.totalRejections++;
 
         const stateResult = this.stateMachine.execute({
             microstructure, liquidityMap, geometry, prediction, risk,
@@ -474,9 +546,12 @@ export class PipelineOrchestrator {
             structure,
             geometry: geometryBundle,
             decision,
+            currentPrice: bundle.price.close,
             degraded,
             failedEngines,
             durationMs,
+            engineRate: durationMs > 0 ? 1000 / durationMs : 0,
+            rejectionRatio: this.totalCycles > 0 ? (this.totalRejections / this.totalCycles) * 100 : 0,
             timestamp: new Date().toISOString(),
         };
 

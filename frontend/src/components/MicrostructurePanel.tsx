@@ -46,34 +46,46 @@ export function MicrostructurePanel(): React.ReactElement {
 
     return (
         <div className="panel microstructure-panel" role="region" aria-label="Microstructure Panel">
-            <h2 className="panel-title"><span className="panel-title-icon">🔬</span> Microstructure</h2>
+            <h2 className="panel-title" style={{ paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                <span className="panel-title-icon">🔬</span> Orderflow Microstructure
+            </h2>
 
             {/* Alignment score — prominent */}
             <div style={{
-                padding: '10px 14px',
+                padding: '12px 16px',
                 background: 'var(--surface2)',
-                borderRadius: 'var(--radius-sm)',
+                borderRadius: 'var(--radius)',
                 border: `1px solid var(--border)`,
-                borderLeft: `3px solid ${alignColor}`,
+                borderLeft: `4px solid ${alignColor}`,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                gap: '14px',
+                marginTop: '4px',
+                boxShadow: 'var(--shadow-premium)',
+                transition: 'var(--transition)'
             }}>
                 <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '5px' }}>
-                        Alignment Score
+                    <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>
+                        Alignment Confidence
                     </div>
-                    <div className="alignment-bar-container">
-                        <div className="alignment-bar" style={{ width: `${alignPct}%`, background: alignColor }} />
+                    <div className="alignment-bar-container" style={{ height: '6px', background: 'var(--surface4)', borderRadius: '3px' }}>
+                        <div className="alignment-bar" style={{ 
+                            width: `${alignPct}%`, 
+                            background: alignColor, 
+                            height: '100%', 
+                            borderRadius: '3px',
+                            boxShadow: `0 0 10px ${alignColor}40`,
+                            transition: 'width 1s ease'
+                        }} />
                     </div>
                 </div>
-                <span style={{ fontSize: '20px', fontWeight: 300, color: alignColor, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
+                <span style={{ fontSize: '22px', fontWeight: 600, color: alignColor, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
                     {alignPct}%
                 </span>
             </div>
 
             {/* Signal badges */}
-            <div className="badges-row">
+            <div className="badges-row" style={{ marginTop: '8px', gap: '6px' }}>
                 <Badge label="Sweep" active={sweep} />
                 <Badge label="Divergence" active={divergence} />
                 <Badge label="CVD Div" active={cvdDivergence} />
@@ -84,8 +96,16 @@ export function MicrostructurePanel(): React.ReactElement {
 
             {/* Active signal count */}
             {[sweep, divergence, cvdDivergence, bosDetected, retestZone, htfAlignment].filter(Boolean).length > 0 && (
-                <div style={{ fontSize: '10px', color: 'var(--text3)', paddingLeft: '2px' }}>
-                    {[sweep, divergence, cvdDivergence, bosDetected, retestZone, htfAlignment].filter(Boolean).length} signal{[sweep, divergence, cvdDivergence, bosDetected, retestZone, htfAlignment].filter(Boolean).length !== 1 ? 's' : ''} active
+                <div style={{ 
+                    fontSize: '10px', 
+                    color: 'var(--text3)', 
+                    padding: '8px 12px', 
+                    background: 'var(--surface4)', 
+                    borderRadius: '20px',
+                    width: 'fit-content',
+                    marginTop: '4px'
+                }}>
+                    <span style={{ color: 'var(--accent-light)', fontWeight: 700 }}>{[sweep, divergence, cvdDivergence, bosDetected, retestZone, htfAlignment].filter(Boolean).length}</span> signals confirmed
                 </div>
             )}
         </div>

@@ -159,6 +159,9 @@ export interface RiskOutput {
     microstructureComplete: boolean;
     hardReject: boolean;
     rejectReasons: string[];
+    feeAwareNetProfit?: number;
+    dailyDrawdown: number;
+    dailyDrawdownCap: number;
 }
 
 export interface StateMachineOutput {
@@ -217,6 +220,36 @@ export interface OrderflowOutput {
     bidAskPressure: number;
 }
 
+// BreakoutCycleEngine Types (Engine #15)
+export type RangeState = 'EXPANSION' | 'CONTRACTION' | 'BREAKOUT' | 'RETEST';
+export type BreakoutDirection = 'LONG' | 'SHORT' | null;
+
+export interface BreakoutCycleInput {
+    candles: Array<{ high: number; low: number; open: number; close: number; volume: number; timestamp: string }>;
+    atr: number;
+    avgRangeBody: number;
+    avgRangeVolume: number;
+    liquidityMap: LiquidityMapOutput;
+    marketStructure: MarketStructureOutput;
+    volatilityRegime: VolatilityRegime;
+    microstructure: MicrostructureOutput;
+}
+
+export interface BreakoutCycleOutput {
+    rangeState: RangeState;
+    rh: number;      // Recent High
+    rl: number;      // Recent Low
+    breakoutDirection: BreakoutDirection;
+    breakoutLevel: number | null;  // Breakout threshold
+    entry1: number | null;         // Breakout entry
+    entry2: number | null;         // Retest entry
+    retestLevel: number | null;    // Retest threshold
+    stopLoss: number | null;
+    tp1: number | null;
+    tp2: number | null;
+    invalidated: boolean;
+}
+
 export interface ScoringOutput {
     probability: number; // [0, 100]
     contributions: Record<string, number>;
@@ -238,11 +271,17 @@ export interface LiveAnalysisResponse {
     liquidity: LiquidityMapOutput;
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
+    breakoutCycle?: BreakoutCycleOutput;
+    currentPrice: number;
     // Scoring output — includes probability (0–100) and per-engine contributions
     scoring: ScoringOutput;
     timestamp: string;
     degraded?: boolean;
     failedEngines?: string[];
+    engineRate?: number;    // Hz
+    rejectionRatio?: number; // %
+    dailyDrawdown: number;
+    dailyDrawdownCap: number;
 }
 
 // ------------------------------------------------------------
@@ -266,18 +305,26 @@ export interface MarketStructureOutput {
     premiumZone: [number, number];
     discountZone: [number, number];
     structureBounds: [number, number];
+    rangeState: RangeState | null;
+    rh: number;
+    rl: number;
+    breakoutDirection: BreakoutDirection | null;
 }
+
 
 export interface StructureBundle {
     marketStructure: MarketStructureOutput;
     liquidityMap: LiquidityMapOutput;
 }
 
+
 export interface GeometryBundle {
     geometry: GeometryOutput;
     microstructure: MicrostructureOutput;
     orderflow: OrderflowOutput;
+    breakoutCycle?: BreakoutCycleOutput; // Optional for backwards compatibility
 }
+
 
 export interface DecisionBundle {
     prediction: PredictionOutput;
@@ -292,9 +339,12 @@ export interface PipelineResult {
     structure: StructureBundle;
     geometry: GeometryBundle;
     decision: DecisionBundle;
+    currentPrice: number;
     degraded: boolean;
     failedEngines: string[];
     durationMs: number;
+    engineRate: number;
+    rejectionRatio: number;
     timestamp: string;
 }
 

@@ -48,6 +48,7 @@ exports[`Snapshot tests — all 15 engines > MacroBiasEngine snapshot 1`] = `"LO
 
 exports[`Snapshot tests — all 15 engines > MarketStructureContextEngine snapshot 1`] = `
 {
+  "breakoutDirection": null,
   "discountZone": [
     49900,
     50100,
@@ -58,6 +59,9 @@ exports[`Snapshot tests — all 15 engines > MarketStructureContextEngine snapsh
     50100,
     50300,
   ],
+  "rangeState": "CONTRACTION",
+  "rh": 50300,
+  "rl": 49900,
   "structureBounds": [
     49900,
     50300,
@@ -91,25 +95,25 @@ exports[`Snapshot tests — all 15 engines > OrderflowEngine snapshot 1`] = `
 exports[`Snapshot tests — all 15 engines > PredictionEngine snapshot 1`] = `
 {
   "band50": [
-    0.7460000000000001,
-    0.7660000000000001,
+    0.7019940059940062,
+    0.8219940059940061,
   ],
   "band80": [
-    0.7360000000000001,
-    0.7760000000000001,
+    0.6419940059940061,
+    0.8819940059940061,
   ],
   "band95": [
-    0.7260000000000001,
-    0.7860000000000001,
+    0.5819940059940061,
+    0.9419940059940062,
   ],
-  "decayed": 0.6399401840173043,
+  "decayed": 0.6605557635383114,
   "liquidityBias": 0.004995004995004995,
-  "max": 0.7760000000000001,
-  "min": 0.7360000000000001,
-  "smoothed": 0.756,
-  "strictLine": 0.7560000000000001,
+  "max": 0.8819940059940061,
+  "min": 0.6419940059940061,
+  "smoothed": 0.761994005994006,
+  "strictLine": 0.6349950049950052,
   "timestamp": "<MASKED>",
-  "volatilityAdjustment": 120,
+  "volatilityAdjustment": 0.08639999999999999,
 }
 `;
 
@@ -119,12 +123,15 @@ exports[`Snapshot tests — all 15 engines > RiskManager snapshot 1`] = `
 {
   "edd": 200,
   "ev": 225,
+  "feeAwareNetProfit": 0.39999999999999997,
   "geometryStable": true,
   "globalStress": "SAFE",
-  "hardReject": false,
+  "hardReject": true,
   "microstructureComplete": true,
   "probability": 85,
-  "rejectReasons": [],
+  "rejectReasons": [
+    "Fee-aware net profit 0.40% is below 3% threshold",
+  ],
   "stopDistance": 200,
   "targetDistance": 300,
   "volatilityRegime": "NORMAL",
@@ -134,15 +141,19 @@ exports[`Snapshot tests — all 15 engines > RiskManager snapshot 1`] = `
 exports[`Snapshot tests — all 15 engines > ScoringEngine snapshot 1`] = `
 {
   "contributions": {
+    "breakoutStrength": 20,
     "geometry": 84,
     "liquidity": 0,
     "macro": 70,
     "microstructure": 50,
     "orderflow": 54.50000000000001,
+    "rangeCompression": 30,
+    "retestQuality": 10,
     "session": 80,
     "volatility": 75,
+    "volumeExpansion": 35,
   },
-  "probability": 52.925,
+  "probability": 47.8,
 }
 `;
 

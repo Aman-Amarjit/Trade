@@ -161,10 +161,16 @@ export function createApiServer(opts: ApiServerOptions): express.Application {
             liquidity: result.structure.liquidityMap,
             geometry: result.geometry.geometry,
             microstructure: result.geometry.microstructure,
+            breakoutCycle: result.geometry.breakoutCycle,
+            currentPrice: result.currentPrice,
             scoring: result.decision.scoring,
             timestamp: result.timestamp,
             degraded: result.degraded,
             failedEngines: result.failedEngines,
+            engineRate: result.engineRate,
+            rejectionRatio: result.rejectionRatio,
+            dailyDrawdown: result.decision.risk.dailyDrawdown,
+            dailyDrawdownCap: result.decision.risk.dailyDrawdownCap,
         };
 
         res.json(response);
